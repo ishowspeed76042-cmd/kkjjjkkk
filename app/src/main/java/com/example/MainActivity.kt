@@ -207,7 +207,12 @@ fun MainAppContent(
                     onDeleteBinding = { id -> repository.deleteBinding(id) },
                     onUpdateJoystick = { joy -> repository.updateJoystickConfig(joy) },
                     onUpdateGlobalScale = { scale -> repository.updateGlobalButtonScale(scale) },
-                    onResetDefaults = { repository.resetToDefaults() }
+                    onResetDefaults = { repository.resetToDefaults() },
+                    onClearAllBindings = {
+                        repository.clearAllBindings()
+                        Toast.makeText(context, "Clean layout: All buttons cleared", Toast.LENGTH_SHORT).show()
+                    },
+                    onUpdateBindingSize = { id, delta -> repository.updateBindingSize(id, delta) }
                 )
                 2 -> MouseSensitivityScreen(
                     cameraConfig = activeProfile.camera,

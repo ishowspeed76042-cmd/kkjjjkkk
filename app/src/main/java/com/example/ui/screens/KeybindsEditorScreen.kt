@@ -21,17 +21,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -72,7 +73,6 @@ import com.example.ui.components.NeonButton
 import com.example.ui.theme.CyberAmber
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
-import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.DarkSurfaceElevated
 import com.example.ui.theme.DarkSurfaceHighlight
 import com.example.ui.theme.NeonGreen
@@ -90,13 +90,16 @@ fun KeybindsEditorScreen(
     onDeleteBinding: (String) -> Unit,
     onUpdateJoystick: (JoystickConfig) -> Unit,
     onUpdateGlobalScale: (Float) -> Unit,
-    onResetDefaults: () -> Unit
+    onResetDefaults: () -> Unit,
+    onClearAllBindings: () -> Unit = {},
+    onUpdateBindingSize: (String, Float) -> Unit = { _, _ -> }
 ) {
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
     val categories = listOf("All", "Combat", "Movement", "Tactical", "Inventory", "HUD Preview")
 
     var editingBinding by remember { mutableStateOf<KeyBinding?>(null) }
     var isAddingNew by remember { mutableStateOf(false) }
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -129,10 +132,42 @@ fun KeybindsEditorScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Local Storage Sync Indicator
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = NeonGreen,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Auto-Saved to Phone Storage",
+                    color = NeonGreen,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Text(
+                text = "${profile.bindings.size} custom keys",
+                color = TextSecondary,
+                fontSize = 11.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         if (selectedCategoryIndex == 5) {
-            // Interactive In-App Screen HUD Preview
+            // Interactive Screen HUD Preview
             InteractiveHudPreview(
                 profile = profile,
                 onSelectBinding = { editingBinding = it },
@@ -141,10 +176,12 @@ fun KeybindsEditorScreen(
                 },
                 onUpdateJoystickPosition = { nx, ny ->
                     onUpdateJoystick(profile.joystick.copy(centerX = nx, centerY = ny))
-                }
+                },
+                onUpdateBindingSize = onUpdateBindingSize,
+                onDeleteBinding = onDeleteBinding
             )
         } else {
-            // Global Button Size Scale Card
+            // Global Scale & Actions Bar
             GamingCard(borderColor = CyberCyan.copy(alpha = 0.35f)) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(
@@ -153,8 +190,8 @@ fun KeybindsEditorScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text("Button Size Scale (छोटे-बड़े बटन्स)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                            Text("Enlarge or shrink all on-screen mapping pins", fontSize = 11.sp, color = TextSecondary)
+                            Text("Global Button Size Scale", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text("Scale all pins together (individual sizes scale proportionally)", fontSize = 11.sp, color = TextSecondary)
                         }
                         Text(
                             "${(profile.globalButtonScale * 100).toInt()}%",
@@ -174,7 +211,7 @@ fun KeybindsEditorScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Header with Add Button
+            // Action Buttons Bar: [+ Add Key], [Clear All], [Reset Presets]
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -184,16 +221,39 @@ fun KeybindsEditorScreen(
             ) {
                 Text(
                     text = "Keybindings (${profile.bindings.size})",
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(onClick = onResetDefaults) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Reset Defaults", tint = TextSecondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Clear all button (for clean start)
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { showClearConfirmDialog = true },
+                        color = DarkSurfaceHighlight,
+                        border = BorderStroke(1.dp, Color(0xFFE53935).copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Clear All", tint = Color(0xFFE53935), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Clear", color = Color(0xFFE53935), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
 
+                    // Reset defaults icon
+                    IconButton(
+                        onClick = onResetDefaults,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Reset Defaults", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                    }
+
+                    // + Add Key Button
                     NeonButton(
                         text = "+ Add Key",
                         onClick = { isAddingNew = true },
@@ -230,13 +290,49 @@ fun KeybindsEditorScreen(
                     }
                 }
 
-                items(filteredBindings, key = { it.id }) { binding ->
-                    BindingRowCard(
-                        binding = binding,
-                        globalScale = profile.globalButtonScale,
-                        onEdit = { editingBinding = binding },
-                        onDelete = { onDeleteBinding(binding.id) }
-                    )
+                if (filteredBindings.isEmpty()) {
+                    item {
+                        GamingCard(borderColor = DarkBorder) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(28.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "✨ Clean Layout (No Buttons)",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Screen is clear of unwanted buttons. Tap '+ Add Key' to add only the buttons you need.",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
+                                NeonButton(
+                                    text = "+ Add Your First Key",
+                                    onClick = { isAddingNew = true },
+                                    isPrimary = true
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    items(filteredBindings, key = { it.id }) { binding ->
+                        BindingRowCard(
+                            binding = binding,
+                            globalScale = profile.globalButtonScale,
+                            onEdit = { editingBinding = binding },
+                            onDelete = { onDeleteBinding(binding.id) },
+                            onSizeDelta = { delta ->
+                                onUpdateBindingSize(binding.id, delta)
+                            }
+                        )
+                    }
                 }
 
                 item {
@@ -244,6 +340,39 @@ fun KeybindsEditorScreen(
                 }
             }
         }
+    }
+
+    // Clear All Confirmation Dialog
+    if (showClearConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmDialog = false },
+            containerColor = DarkSurfaceElevated,
+            title = {
+                Text("Clear All Buttons?", color = TextPrimary, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "This will remove all keybindings from this profile so you can build your custom layout from a clean, blank screen.\n\nYou can always restore default buttons via the Refresh button.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                NeonButton(
+                    text = "Yes, Clear All",
+                    onClick = {
+                        onClearAllBindings()
+                        showClearConfirmDialog = false
+                    },
+                    isPrimary = true
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirmDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
     }
 
     // Edit Binding Dialog
@@ -287,8 +416,13 @@ fun InteractiveHudPreview(
     profile: MappingProfile,
     onSelectBinding: (KeyBinding) -> Unit,
     onUpdateBindingPosition: (KeyBinding, Float, Float) -> Unit,
-    onUpdateJoystickPosition: (Float, Float) -> Unit
+    onUpdateJoystickPosition: (Float, Float) -> Unit,
+    onUpdateBindingSize: (String, Float) -> Unit,
+    onDeleteBinding: (String) -> Unit
 ) {
+    var selectedPinId by remember { mutableStateOf<String?>(null) }
+    val selectedBinding = profile.bindings.find { it.id == selectedPinId }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
             text = "Interactive HUD Layout (Free Fire)",
@@ -297,7 +431,7 @@ fun InteractiveHudPreview(
             color = TextPrimary
         )
         Text(
-            text = "Drag keys on the screen to align with your in-game layout. Tap a key to rebind or resize.",
+            text = "Tap any pin to resize or delete. Drag to position directly over Free Fire controls.",
             fontSize = 12.sp,
             color = TextSecondary,
             modifier = Modifier.padding(bottom = 8.dp)
@@ -375,16 +509,18 @@ fun InteractiveHudPreview(
                     }
                 }
 
-                // Draggable key badges with dynamic size
+                // Draggable key badges with individual sizing
                 profile.bindings.forEach { binding ->
                     var pinX by remember(binding.targetX) { mutableFloatStateOf(binding.targetX * widthPx) }
                     var pinY by remember(binding.targetY) { mutableFloatStateOf(binding.targetY * heightPx) }
+                    val isSelected = (binding.id == selectedPinId)
 
-                    val pinColor = when (binding.id) {
-                        "fire" -> NeonRed
-                        "aim" -> CyberAmber
-                        "gloo_wall" -> NeonGreen
-                        "skill" -> NeonPurple
+                    val pinColor = when {
+                        isSelected -> CyberAmber
+                        binding.id == "fire" -> NeonRed
+                        binding.id == "aim" -> CyberAmber
+                        binding.id == "gloo_wall" -> NeonGreen
+                        binding.id == "skill" -> NeonPurple
                         else -> CyberCyan
                     }
 
@@ -394,11 +530,12 @@ fun InteractiveHudPreview(
                         modifier = Modifier
                             .offset { IntOffset((pinX - pinSizeDp.value / 2).roundToInt(), (pinY - pinSizeDp.value / 2).roundToInt()) }
                             .size(pinSizeDp)
-                            .background(DarkSurfaceElevated.copy(alpha = 0.85f), CircleShape)
-                            .border(BorderStroke(1.5.dp, pinColor), CircleShape)
-                            .clickable { onSelectBinding(binding) }
+                            .background(if (isSelected) DarkSurfaceHighlight else DarkSurfaceElevated.copy(alpha = 0.85f), CircleShape)
+                            .border(BorderStroke(if (isSelected) 2.5.dp else 1.5.dp, pinColor), CircleShape)
+                            .clickable { selectedPinId = binding.id }
                             .pointerInput(binding.id) {
                                 detectDragGestures(
+                                    onDragStart = { selectedPinId = binding.id },
                                     onDragEnd = {
                                         onUpdateBindingPosition(
                                             binding,
@@ -424,6 +561,76 @@ fun InteractiveHudPreview(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Selected Pin Toolbar (Individual Resizing & Actions)
+        if (selectedBinding != null) {
+            GamingCard(borderColor = CyberAmber.copy(alpha = 0.6f)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "${selectedBinding.name} (${selectedBinding.keyLabel})",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Size: ${(selectedBinding.size * 100).toInt()}% • Pos: (${(selectedBinding.targetX * 100).toInt()}%, ${(selectedBinding.targetY * 100).toInt()}%)",
+                            fontSize = 11.sp,
+                            color = CyberAmber
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        // Smaller
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onUpdateBindingSize(selectedBinding.id, -0.15f) },
+                            color = DarkSurfaceHighlight
+                        ) {
+                            Text("➖", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontSize = 12.sp)
+                        }
+
+                        // Bigger
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onUpdateBindingSize(selectedBinding.id, 0.15f) },
+                            color = DarkSurfaceHighlight
+                        ) {
+                            Text("➕", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontSize = 12.sp)
+                        }
+
+                        // Edit
+                        IconButton(
+                            onClick = { onSelectBinding(selectedBinding) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = CyberCyan, modifier = Modifier.size(16.dp))
+                        }
+
+                        // Delete
+                        IconButton(
+                            onClick = {
+                                onDeleteBinding(selectedBinding.id)
+                                selectedPinId = null
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFE53935), modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -432,7 +639,8 @@ fun BindingRowCard(
     binding: KeyBinding,
     globalScale: Float,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onSizeDelta: (Float) -> Unit
 ) {
     GamingCard(
         borderColor = when (binding.category) {
@@ -445,7 +653,7 @@ fun BindingRowCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -464,7 +672,7 @@ fun BindingRowCard(
                     onClick = onEdit
                 )
 
-                Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -474,28 +682,57 @@ fun BindingRowCard(
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+
+                    // Individual Size Controls directly on the item
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 2.dp)
+                    ) {
                         Text(
                             text = "Size: ${(binding.size * 100).toInt()}%",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             color = CyberAmber,
                             fontWeight = FontWeight.SemiBold
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Quick decrement button
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onSizeDelta(-0.15f) },
+                            color = DarkSurfaceHighlight
+                        ) {
+                            Text("➖", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        // Quick increment button
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onSizeDelta(0.15f) },
+                            color = DarkSurfaceHighlight
+                        ) {
+                            Text("➕", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp)
+                        }
                     }
+
                     Text(
                         text = "Pos: (${(binding.targetX * 100).toInt()}%, ${(binding.targetY * 100).toInt()}%) • ${binding.category.name.lowercase().replaceFirstChar { it.uppercase() }}",
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         color = TextSecondary
                     )
                 }
             }
 
-            Row {
-                IconButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit", tint = CyberCyan, modifier = Modifier.size(20.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onEdit, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit", tint = CyberCyan, modifier = Modifier.size(18.dp))
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = TextTertiary, modifier = Modifier.size(20.dp))
+                IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFE53935), modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -589,6 +826,13 @@ fun JoystickConfigCard(
     }
 }
 
+data class KeyPreset(
+    val name: String,
+    val keyLabel: String,
+    val keyCode: Int,
+    val category: BindingCategory
+)
+
 @Composable
 fun EditBindingDialog(
     binding: KeyBinding,
@@ -604,12 +848,27 @@ fun EditBindingDialog(
     var size by remember { mutableFloatStateOf(binding.size) }
     var category by remember { mutableStateOf(binding.category) }
 
+    val quickPresets = listOf(
+        KeyPreset("Jump", "Space", KeyEvent.KEYCODE_SPACE, BindingCategory.MOVEMENT),
+        KeyPreset("Fire / Shoot", "L-Click", ProfileRepository.KEYCODE_MOUSE_LEFT, BindingCategory.COMBAT),
+        KeyPreset("Aim / ADS", "R-Click", ProfileRepository.KEYCODE_MOUSE_RIGHT, BindingCategory.COMBAT),
+        KeyPreset("Gloo Wall", "G", KeyEvent.KEYCODE_G, BindingCategory.TACTICAL),
+        KeyPreset("Skill", "E", KeyEvent.KEYCODE_E, BindingCategory.TACTICAL),
+        KeyPreset("Crouch", "C", KeyEvent.KEYCODE_C, BindingCategory.MOVEMENT),
+        KeyPreset("Prone", "Z", KeyEvent.KEYCODE_Z, BindingCategory.MOVEMENT),
+        KeyPreset("Reload", "R", KeyEvent.KEYCODE_R, BindingCategory.COMBAT),
+        KeyPreset("Medkit", "4", KeyEvent.KEYCODE_4, BindingCategory.INVENTORY),
+        KeyPreset("Gun 1", "1", KeyEvent.KEYCODE_1, BindingCategory.COMBAT),
+        KeyPreset("Gun 2", "2", KeyEvent.KEYCODE_2, BindingCategory.COMBAT),
+        KeyPreset("Backpack", "Tab", KeyEvent.KEYCODE_TAB, BindingCategory.INVENTORY)
+    )
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = DarkSurfaceElevated,
         title = {
             Text(
-                text = if (isNew) "Add Keybinding" else "Edit Key: ${binding.name}",
+                text = if (isNew) "Add Keybinding (+ Button)" else "Edit Key: ${binding.name}",
                 color = TextPrimary,
                 fontWeight = FontWeight.Bold
             )
@@ -619,6 +878,35 @@ fun EditBindingDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Quick Presets Carousel
+                Text("Quick Free Fire Presets (टैप करें):", fontSize = 11.sp, color = TextTertiary)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(quickPresets) { preset ->
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    name = preset.name
+                                    keyLabel = preset.keyLabel
+                                    keyCode = preset.keyCode
+                                    category = preset.category
+                                },
+                            color = if (keyLabel == preset.keyLabel) CyberCyan.copy(alpha = 0.2f) else DarkSurfaceHighlight,
+                            border = BorderStroke(1.dp, if (keyLabel == preset.keyLabel) CyberCyan else DarkBorder)
+                        ) {
+                            Text(
+                                text = "${preset.keyLabel}: ${preset.name}",
+                                fontSize = 11.sp,
+                                color = if (keyLabel == preset.keyLabel) CyberCyan else TextSecondary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -639,7 +927,7 @@ fun EditBindingDialog(
                     OutlinedTextField(
                         value = keyLabel,
                         onValueChange = {
-                            keyLabel = it.take(6)
+                            keyLabel = it.take(8)
                             if (it.isNotEmpty()) {
                                 val char = it.first().uppercaseChar()
                                 keyCode = when (char) {
@@ -684,23 +972,23 @@ fun EditBindingDialog(
                     }
                 }
 
-                // Button Size Scale Slider (बटन्स के साइज छोटे-बड़े)
+                // Individual Button Size Scale Slider (बटन्स के साइज छोटे-बड़े)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Button Size Scale (बटन साइज)", fontSize = 12.sp, color = TextSecondary)
+                    Text("Individual Button Size (बटन साइज)", fontSize = 12.sp, color = TextSecondary)
                     Text("${(size * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CyberAmber)
                 }
                 Slider(
                     value = size,
                     onValueChange = { size = it },
-                    valueRange = 0.6f..2.5f,
+                    valueRange = 0.5f..2.5f,
                     colors = SliderDefaults.colors(thumbColor = CyberAmber, activeTrackColor = CyberAmber)
                 )
 
                 // Coordinate Sliders
-                Text("Target X: ${(targetX * 100).toInt()}%", fontSize = 12.sp, color = TextSecondary)
+                Text("Target X (Horizontal): ${(targetX * 100).toInt()}%", fontSize = 11.sp, color = TextSecondary)
                 Slider(
                     value = targetX,
                     onValueChange = { targetX = it },
@@ -708,7 +996,7 @@ fun EditBindingDialog(
                     colors = SliderDefaults.colors(thumbColor = CyberCyan, activeTrackColor = CyberCyan)
                 )
 
-                Text("Target Y: ${(targetY * 100).toInt()}%", fontSize = 12.sp, color = TextSecondary)
+                Text("Target Y (Vertical): ${(targetY * 100).toInt()}%", fontSize = 11.sp, color = TextSecondary)
                 Slider(
                     value = targetY,
                     onValueChange = { targetY = it },

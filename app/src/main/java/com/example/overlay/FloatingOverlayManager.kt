@@ -16,8 +16,11 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import com.example.data.ProfileRepository
 import com.example.engine.GestureInjector
+import com.example.model.ActionType
+import com.example.model.BindingCategory
 import com.example.model.KeyBinding
 import com.example.model.MappingProfile
 import com.example.service.KeymapperAccessibilityService
@@ -32,6 +35,13 @@ class FloatingOverlayManager(private val context: Context) {
 
     companion object {
         private const val TAG = "FloatingOverlayManager"
+
+        @Volatile
+        private var instance: FloatingOverlayManager? = null
+
+        fun emergencyUnlock(ctx: Context? = null) {
+            instance?.performEmergencyUnlock()
+        }
     }
 
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
@@ -41,11 +51,19 @@ class FloatingOverlayManager(private val context: Context) {
     private var floatingPillView: View? = null
     private var keyPinsOverlayView: FrameLayout? = null
     private var mouseCaptureView: View? = null
+    private var emergencyUnlockBannerView: View? = null
 
     private var isOverlayVisible = false
     private var lastMouseX = 0f
     private var lastMouseY = 0f
     private var hasPrevMousePos = false
+
+    // Track currently selected binding for individual resizing in HUD
+    private var selectedBindingId: String? = null
+
+    init {
+        instance = this
+    }
 
     fun start() {
         scope.launch {
@@ -63,8 +81,10 @@ class FloatingOverlayManager(private val context: Context) {
             KeymapperAccessibilityService.isMouseLocked.collectLatest { locked ->
                 if (locked && Settings.canDrawOverlays(context)) {
                     enableMouseCapture()
+                    showEmergencyUnlockBanner()
                 } else {
                     disableMouseCapture()
+                    hideEmergencyUnlockBanner()
                 }
             }
         }
@@ -74,12 +94,109 @@ class FloatingOverlayManager(private val context: Context) {
         hideFloatingPill()
         hideKeyPinsOverlay()
         disableMouseCapture()
+        hideEmergencyUnlockBanner()
         scope.cancel()
     }
 
     fun toggleOverlay(forceShow: Boolean? = null) {
         val shouldShow = forceShow ?: !isOverlayVisible
         repository.toggleFloatingOverlay(shouldShow)
+    }
+
+    /**
+     * Emergency Unlock: Immediately frees the phone display, dismisses pointer capture,
+     * and sets mouse locked to false.
+     */
+    fun performEmergencyUnlock() {
+        Log.d(TAG, "performEmergencyUnlock triggered")
+        KeymapperAccessibilityService.setMouseLocked(false)
+        disableMouseCapture()
+        hideEmergencyUnlockBanner()
+        try {
+            Toast.makeText(
+                context,
+                "🔓 Display & Mouse Unlocked! (Press Vol Up anytime)",
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Floating Emergency Unlock Banner:
+     * High-visibility, prominent floating button at top center when mouse is locked.
+     * Guaranteed 1-tap display & mouse release.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showEmergencyUnlockBanner() {
+        if (!Settings.canDrawOverlays(context) || windowManager == null) return
+        if (emergencyUnlockBannerView != null) return
+
+        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            layoutType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = 30
+        }
+
+        val banner = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(32, 18, 32, 18)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#E53935")) // Red-Orange safety alert
+                cornerRadius = 40f
+                setStroke(3, Color.WHITE)
+            }
+            elevation = 20f
+
+            val iconText = TextView(context).apply {
+                text = "🔓"
+                textSize = 16f
+                setPadding(0, 0, 12, 0)
+            }
+            addView(iconText)
+
+            val textMsg = TextView(context).apply {
+                text = "MOUSE LOCKED • TAP HERE TO UNLOCK (or Press Vol Up)"
+                setTextColor(Color.WHITE)
+                textSize = 12f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            addView(textMsg)
+
+            setOnClickListener {
+                performEmergencyUnlock()
+            }
+        }
+
+        try {
+            windowManager.addView(banner, params)
+            emergencyUnlockBannerView = banner
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add emergency unlock banner", e)
+        }
+    }
+
+    private fun hideEmergencyUnlockBanner() {
+        try {
+            emergencyUnlockBannerView?.let { windowManager?.removeView(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing emergency unlock banner", e)
+        } finally {
+            emergencyUnlockBannerView = null
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -213,7 +330,7 @@ class FloatingOverlayManager(private val context: Context) {
     }
 
     /**
-     * Toggles the interactive visual on-screen HUD drag-editor with Button Sizing
+     * Toggles visual on-screen HUD drag-editor with individual button resizing and pin management
      */
     fun toggleKeyPinsOverlay() {
         if (keyPinsOverlayView != null) {
@@ -243,74 +360,93 @@ class FloatingOverlayManager(private val context: Context) {
             setBackgroundColor(Color.argb(85, 0, 0, 0))
         }
 
-        // Header instruction & Size controls bar
-        val topBar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(28, 16, 28, 16)
-            setBackgroundColor(Color.parseColor("#EE131B2E"))
+        // Top Controls Bar
+        val topContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply { gravity = Gravity.TOP }
+        }
+
+        val topBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(24, 14, 24, 14)
+            setBackgroundColor(Color.parseColor("#EE131B2E"))
 
             val infoText = TextView(context).apply {
-                text = "🎯 Drag keys over Free Fire buttons. Use +/- to resize buttons."
+                text = "🎯 Tap any pin to resize individually. Drag to position."
                 setTextColor(Color.WHITE)
                 textSize = 12f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             addView(infoText)
 
-            // Button Size Decrease
-            val btnSmaller = TextView(context).apply {
-                text = "➖ Size"
-                setTextColor(Color.WHITE)
+            // + Add Button
+            val addBtn = TextView(context).apply {
+                text = "+ Add Key"
+                setTextColor(Color.parseColor("#00E5FF"))
                 textSize = 12f
                 setPadding(16, 10, 16, 10)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#233152"))
+                    cornerRadius = 14f
+                    setStroke(2, Color.parseColor("#00E5FF"))
+                }
+                setOnClickListener {
+                    val newId = "custom_${System.currentTimeMillis()}"
+                    val newBinding = KeyBinding(
+                        id = newId,
+                        name = "Custom Key",
+                        keyCode = KeyEvent.KEYCODE_T,
+                        keyLabel = "T",
+                        targetX = 0.50f,
+                        targetY = 0.50f,
+                        size = 1.0f,
+                        actionType = ActionType.TAP,
+                        category = BindingCategory.TACTICAL
+                    )
+                    repository.updateBinding(newBinding)
+                    selectedBindingId = newId
+                    hideKeyPinsOverlay()
+                    showKeyPinsOverlay()
+                }
+            }
+            addView(addBtn)
+
+            val spacer1 = View(context).apply { layoutParams = LinearLayout.LayoutParams(10, 1) }
+            addView(spacer1)
+
+            // Clear All Buttons
+            val clearBtn = TextView(context).apply {
+                text = "🗑️ Clear"
+                setTextColor(Color.parseColor("#FF5252"))
+                textSize = 12f
+                setPadding(14, 10, 14, 10)
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#233152"))
                     cornerRadius = 14f
                 }
                 setOnClickListener {
-                    val newScale = (profile.globalButtonScale - 0.15f).coerceAtLeast(0.5f)
-                    repository.saveActiveProfile(profile.copy(globalButtonScale = newScale))
+                    repository.clearAllBindings()
+                    selectedBindingId = null
                     hideKeyPinsOverlay()
                     showKeyPinsOverlay()
                 }
             }
-            addView(btnSmaller)
+            addView(clearBtn)
 
-            val spacer = View(context).apply { layoutParams = LinearLayout.LayoutParams(12, 1) }
-            addView(spacer)
-
-            // Button Size Increase
-            val btnLarger = TextView(context).apply {
-                text = "➕ Size"
-                setTextColor(Color.WHITE)
-                textSize = 12f
-                setPadding(16, 10, 16, 10)
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#233152"))
-                    cornerRadius = 14f
-                }
-                setOnClickListener {
-                    val newScale = (profile.globalButtonScale + 0.15f).coerceAtMost(2.5f)
-                    repository.saveActiveProfile(profile.copy(globalButtonScale = newScale))
-                    hideKeyPinsOverlay()
-                    showKeyPinsOverlay()
-                }
-            }
-            addView(btnLarger)
-
-            val spacer2 = View(context).apply { layoutParams = LinearLayout.LayoutParams(16, 1) }
+            val spacer2 = View(context).apply { layoutParams = LinearLayout.LayoutParams(12, 1) }
             addView(spacer2)
 
+            // Save / Done
             val doneBtn = TextView(context).apply {
                 text = "✓ Save HUD"
                 setTextColor(Color.parseColor("#0B0F19"))
                 textSize = 13f
-                setPadding(24, 12, 24, 12)
+                setPadding(22, 10, 22, 10)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#00E5FF"))
@@ -322,7 +458,91 @@ class FloatingOverlayManager(private val context: Context) {
             }
             addView(doneBtn)
         }
-        rootOverlay.addView(topBar)
+        topContainer.addView(topBar)
+
+        // Selected Pin Individual Resizing / Deleting Bar
+        val selectedBinding = profile.bindings.find { it.id == selectedBindingId }
+        if (selectedBinding != null) {
+            val selectedBar = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(24, 10, 24, 10)
+                setBackgroundColor(Color.parseColor("#DD1A243B"))
+
+                val selLabel = TextView(context).apply {
+                    text = "Selected: '${selectedBinding.name}' (${selectedBinding.keyLabel}) • Size: ${(selectedBinding.size * 100).toInt()}%"
+                    setTextColor(Color.parseColor("#FFB300"))
+                    textSize = 12f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                addView(selLabel)
+
+                // Individual Smaller Button
+                val indSmaller = TextView(context).apply {
+                    text = "➖ Smaller"
+                    setTextColor(Color.WHITE)
+                    textSize = 12f
+                    setPadding(16, 8, 16, 8)
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#233152"))
+                        cornerRadius = 12f
+                    }
+                    setOnClickListener {
+                        repository.updateBindingSize(selectedBinding.id, -0.15f)
+                        hideKeyPinsOverlay()
+                        showKeyPinsOverlay()
+                    }
+                }
+                addView(indSmaller)
+
+                val spacerA = View(context).apply { layoutParams = LinearLayout.LayoutParams(10, 1) }
+                addView(spacerA)
+
+                // Individual Bigger Button
+                val indBigger = TextView(context).apply {
+                    text = "➕ Bigger"
+                    setTextColor(Color.WHITE)
+                    textSize = 12f
+                    setPadding(16, 8, 16, 8)
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#233152"))
+                        cornerRadius = 12f
+                    }
+                    setOnClickListener {
+                        repository.updateBindingSize(selectedBinding.id, 0.15f)
+                        hideKeyPinsOverlay()
+                        showKeyPinsOverlay()
+                    }
+                }
+                addView(indBigger)
+
+                val spacerB = View(context).apply { layoutParams = LinearLayout.LayoutParams(10, 1) }
+                addView(spacerB)
+
+                // Delete this pin
+                val delThis = TextView(context).apply {
+                    text = "🗑️ Delete Pin"
+                    setTextColor(Color.parseColor("#FF5252"))
+                    textSize = 12f
+                    setPadding(16, 8, 16, 8)
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#3D1E28"))
+                        cornerRadius = 12f
+                    }
+                    setOnClickListener {
+                        repository.deleteBinding(selectedBinding.id)
+                        selectedBindingId = null
+                        hideKeyPinsOverlay()
+                        showKeyPinsOverlay()
+                    }
+                }
+                addView(delThis)
+            }
+            topContainer.addView(selectedBar)
+        }
+
+        rootOverlay.addView(topContainer)
 
         // Draw Joystick circle
         val joy = profile.joystick
@@ -347,30 +567,37 @@ class FloatingOverlayManager(private val context: Context) {
                 leftMargin = (joy.centerX * screenW - joySize / 2f).toInt()
                 topMargin = (joy.centerY * screenH - joySize / 2f).toInt()
             }
-            makeDraggable(joyView, joyParams, screenW, screenH) { newNormX, newNormY ->
+            makeDraggable(joyView, joyParams, screenW, screenH, onSelect = {
+                // Joystick selected
+            }) { newNormX, newNormY ->
                 repository.updateJoystickConfig(joy.copy(centerX = newNormX, centerY = newNormY))
             }
             rootOverlay.addView(joyView, joyParams)
         }
 
-        // Draw each keybinding badge with DYNAMIC SCALED SIZE
+        // Draw each keybinding badge with individual sizing & selection
         profile.bindings.forEach { binding ->
             val baseSize = 120
-            val pinSize = (baseSize * binding.size * profile.globalButtonScale).toInt().coerceIn(60, 280)
+            val isSelected = (binding.id == selectedBindingId)
+            val pinSize = (baseSize * binding.size * profile.globalButtonScale).toInt().coerceIn(60, 300)
 
             val badge = FrameLayout(context).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    when (binding.id) {
-                        "fire" -> {
+                    when {
+                        isSelected -> {
+                            setColor(Color.argb(230, 255, 179, 0))
+                            setStroke(4, Color.WHITE)
+                        }
+                        binding.id == "fire" -> {
                             setColor(Color.argb(200, 255, 82, 82))
                             setStroke(3, Color.WHITE)
                         }
-                        "aim" -> {
+                        binding.id == "aim" -> {
                             setColor(Color.argb(200, 255, 179, 0))
                             setStroke(3, Color.WHITE)
                         }
-                        "gloo_wall" -> {
+                        binding.id == "gloo_wall" -> {
                             setColor(Color.argb(200, 0, 230, 118))
                             setStroke(3, Color.WHITE)
                         }
@@ -385,7 +612,7 @@ class FloatingOverlayManager(private val context: Context) {
                     text = binding.keyLabel
                     gravity = Gravity.CENTER
                     setTextColor(Color.WHITE)
-                    textSize = (11f * binding.size * profile.globalButtonScale).coerceIn(9f, 20f)
+                    textSize = (11f * binding.size * profile.globalButtonScale).coerceIn(9f, 22f)
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 addView(labelView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
@@ -396,7 +623,11 @@ class FloatingOverlayManager(private val context: Context) {
                 topMargin = ((binding.targetY * screenH) - pinSize / 2f).toInt().coerceIn(0, screenH - pinSize)
             }
 
-            makeDraggable(badge, badgeParams, screenW, screenH) { newNormX, newNormY ->
+            makeDraggable(badge, badgeParams, screenW, screenH, onSelect = {
+                selectedBindingId = binding.id
+                hideKeyPinsOverlay()
+                showKeyPinsOverlay()
+            }) { newNormX, newNormY ->
                 repository.updateBinding(binding.copy(targetX = newNormX, targetY = newNormY))
             }
 
@@ -437,12 +668,14 @@ class FloatingOverlayManager(private val context: Context) {
         params: FrameLayout.LayoutParams,
         screenW: Int,
         screenH: Int,
+        onSelect: () -> Unit,
         onDrop: (normX: Float, normY: Float) -> Unit
     ) {
         var startTouchX = 0f
         var startTouchY = 0f
         var startLeftMargin = 0
         var startTopMargin = 0
+        var hasMoved = false
 
         view.setOnTouchListener { v, event ->
             when (event.action) {
@@ -451,12 +684,16 @@ class FloatingOverlayManager(private val context: Context) {
                     startTouchY = event.rawY
                     startLeftMargin = params.leftMargin
                     startTopMargin = params.topMargin
+                    hasMoved = false
                     v.animate().scaleX(1.12f).scaleY(1.12f).setDuration(80).start()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - startTouchX).toInt()
                     val dy = (event.rawY - startTouchY).toInt()
+                    if (Math.hypot(dx.toDouble(), dy.toDouble()) > 10) {
+                        hasMoved = true
+                    }
                     params.leftMargin = (startLeftMargin + dx).coerceIn(0, screenW - params.width)
                     params.topMargin = (startTopMargin + dy).coerceIn(0, screenH - params.height)
                     v.layoutParams = params
@@ -464,11 +701,15 @@ class FloatingOverlayManager(private val context: Context) {
                 }
                 MotionEvent.ACTION_UP -> {
                     v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(80).start()
-                    val centerX = params.leftMargin + params.width / 2f
-                    val centerY = params.topMargin + params.height / 2f
-                    val normX = (centerX / screenW).coerceIn(0f, 1f)
-                    val normY = (centerY / screenH).coerceIn(0f, 1f)
-                    onDrop(normX, normY)
+                    if (!hasMoved) {
+                        onSelect()
+                    } else {
+                        val centerX = params.leftMargin + params.width / 2f
+                        val centerY = params.topMargin + params.height / 2f
+                        val normX = (centerX / screenW).coerceIn(0f, 1f)
+                        val normY = (centerY / screenH).coerceIn(0f, 1f)
+                        onDrop(normX, normY)
+                    }
                     true
                 }
                 else -> false
@@ -478,8 +719,9 @@ class FloatingOverlayManager(private val context: Context) {
 
     /**
      * Mouse Capture Window:
-     * Full-screen transparent overlay capable of acquiring and maintaining pointer capture.
-     * Converts raw physical mouse deltas into continuous FPS camera rotations.
+     * Full-screen transparent overlay for capturing physical mouse deltas into FPS camera touch swipes.
+     * Engineered with safety flags so that touchscreen is NOT trapped and Volume Up emergency unlock
+     * releases capture immediately.
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun enableMouseCapture() {
@@ -493,12 +735,13 @@ class FloatingOverlayManager(private val context: Context) {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        // Full-screen focused window to reliably receive mouse capture & keys
+        // FLAG_NOT_TOUCH_MODAL is critical to avoid trapping device navigation / display touches
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             layoutType,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -519,6 +762,11 @@ class FloatingOverlayManager(private val context: Context) {
             }
 
             override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                // Hardware Volume Up Key Emergency Unlock
+                if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                    performEmergencyUnlock()
+                    return true
+                }
                 val handled = KeymapperAccessibilityService.currentServiceInstance?.processKeyEvent(event) ?: false
                 return handled || super.dispatchKeyEvent(event)
             }
@@ -528,7 +776,7 @@ class FloatingOverlayManager(private val context: Context) {
             isFocusableInTouchMode = true
         }
 
-        // Subtle center crosshair to indicate FPS lock active
+        // Center crosshair
         val crosshair = View(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -538,9 +786,29 @@ class FloatingOverlayManager(private val context: Context) {
         }
         captureView.addView(crosshair)
 
+        // Listen for mouse motions across captured, generic, hover, and touch events
         captureView.setOnGenericMotionListener { _, event ->
             handleCapturedPointer(event)
             true
+        }
+
+        captureView.setOnHoverListener { _, event ->
+            handleCapturedPointer(event)
+            true
+        }
+
+        captureView.setOnTouchListener { _, event ->
+            // If user touches display with finger near top center or triple taps, emergency unlock
+            if (event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER) {
+                if (event.rawY < 180f) {
+                    performEmergencyUnlock()
+                    return@setOnTouchListener true
+                }
+            } else if (event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE) {
+                handleCapturedPointer(event)
+                return@setOnTouchListener true
+            }
+            false
         }
 
         try {
@@ -553,7 +821,7 @@ class FloatingOverlayManager(private val context: Context) {
                     captureView.requestPointerCapture()
                 }
             }
-            Log.d(TAG, "Full-screen mouse pointer capture active")
+            Log.d(TAG, "Full-screen mouse pointer capture active with safety unlock")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add mouse capture view", e)
         }
@@ -571,7 +839,7 @@ class FloatingOverlayManager(private val context: Context) {
             dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
         }
 
-        // Fallback for mice that send absolute coordinates
+        // Fallback for mice sending absolute positions or generic hover events
         if (dx == 0f && dy == 0f) {
             if (hasPrevMousePos) {
                 dx = event.x - lastMouseX

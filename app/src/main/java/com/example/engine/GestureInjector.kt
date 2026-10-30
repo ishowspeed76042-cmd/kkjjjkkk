@@ -163,14 +163,16 @@ class GestureInjector {
         val startX = (zoneLeft + zoneRight) / 2f
         val startY = (zoneTop + zoneBottom) / 2f
 
-        // Apply sensitivity, invert Y if needed, and speed multiplier
+        // Apply sensitivity, invert Y if needed, and speed multiplier with gaming amplifier (6.5x)
+        // This ensures physical mouse delta produces an actual touch swipe distance that rotates Free Fire's camera
         val effectiveDy = if (config.invertY) -curDy else curDy
-        val swipeLengthX = curDx * config.sensitivityX * config.speedMultiplier
-        val swipeLengthY = effectiveDy * config.sensitivityY * config.speedMultiplier
+        val amplification = 6.5f
+        val swipeLengthX = curDx * config.sensitivityX * config.speedMultiplier * amplification
+        val swipeLengthY = effectiveDy * config.sensitivityY * config.speedMultiplier * amplification
 
         // End point clamped inside swipe zone
-        val endX = (startX + swipeLengthX).coerceIn(zoneLeft + 20f, zoneRight - 20f)
-        val endY = (startY + swipeLengthY).coerceIn(zoneTop + 20f, zoneBottom - 20f)
+        val endX = (startX + swipeLengthX).coerceIn(zoneLeft + 25f, zoneRight - 25f)
+        val endY = (startY + swipeLengthY).coerceIn(zoneTop + 25f, zoneBottom - 25f)
 
         _visualTouchFlow.tryEmit(
             VisualTouchEvent(endX, endY, isMouseSwipe = true, label = "Aim")
@@ -181,7 +183,7 @@ class GestureInjector {
             lineTo(endX, endY)
         }
 
-        val stroke = GestureDescription.StrokeDescription(path, 0, 28L)
+        val stroke = GestureDescription.StrokeDescription(path, 0, 36L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         val dispatched = service.dispatchGesture(

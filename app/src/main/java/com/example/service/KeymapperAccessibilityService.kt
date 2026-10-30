@@ -104,6 +104,22 @@ class KeymapperAccessibilityService : AccessibilityService() {
 
         lastKeyEventFlow.value = "Key: ${KeyEvent.keyCodeToString(keyCode)} (${if (action == KeyEvent.ACTION_DOWN) "DOWN" else "UP"})"
 
+        // EMERGENCY UNLOCK: Volume Up Key immediately frees the display and mouse lock
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            if (_isMouseLocked.value) {
+                if (action == KeyEvent.ACTION_DOWN) {
+                    setMouseLocked(false)
+                    com.example.overlay.FloatingOverlayManager.emergencyUnlock(this)
+                    android.widget.Toast.makeText(
+                        this,
+                        "🔓 Emergency Unlock: Display and Mouse Unlocked!",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+                return true
+            }
+        }
+
         // Check for Mouse Lock Toggle key (e.g. `~` / Grave key)
         if (keyCode == profile.camera.lockToggleKeyCode) {
             if (action == KeyEvent.ACTION_DOWN) {

@@ -119,6 +119,30 @@ class ProfileRepository(private val context: Context) {
         )
     }
 
+    fun getBlankCustomProfile(): MappingProfile {
+        return MappingProfile(
+            id = "custom_empty",
+            name = "Custom Layout (Clean / Empty)",
+            description = "Start completely clean with 0 default buttons. Use '+ Add Key' to add only what you need.",
+            isDefault = false,
+            bindings = emptyList(),
+            joystick = JoystickConfig(
+                enabled = true,
+                centerX = 0.18f,
+                centerY = 0.72f,
+                radius = 0.08f,
+                dragDistance = 0.14f
+            ),
+            camera = CameraSwipeConfig(
+                sensitivityX = 1.0f,
+                sensitivityY = 0.85f,
+                speedMultiplier = 1.0f
+            ),
+            floatingOverlayEnabled = false,
+            overlayOpacity = 0.70f
+        )
+    }
+
     fun getClashSquadProfile(): MappingProfile {
         val br = getFreeFireDefaultProfile()
         val clashBindings = br.bindings.toMutableList().apply {
@@ -137,7 +161,7 @@ class ProfileRepository(private val context: Context) {
     private fun loadInitialProfiles(): List<MappingProfile> {
         val jsonStr = prefs.getString(PREF_PROFILES_JSON, null)
         if (jsonStr.isNullOrEmpty()) {
-            val defaults = listOf(getFreeFireDefaultProfile(), getClashSquadProfile())
+            val defaults = listOf(getFreeFireDefaultProfile(), getBlankCustomProfile(), getClashSquadProfile())
             try {
                 val array = JSONArray()
                 defaults.forEach { array.put(it.toJsonString(0)) }
@@ -200,6 +224,24 @@ class ProfileRepository(private val context: Context) {
     fun deleteBinding(bindingId: String) {
         val current = _activeProfile.value
         val updatedBindings = current.bindings.filter { it.id != bindingId }
+        saveActiveProfile(current.copy(bindings = updatedBindings))
+    }
+
+    fun clearAllBindings() {
+        val current = _activeProfile.value
+        saveActiveProfile(current.copy(bindings = emptyList()))
+    }
+
+    fun updateBindingSize(bindingId: String, delta: Float) {
+        val current = _activeProfile.value
+        val updatedBindings = current.bindings.map { binding ->
+            if (binding.id == bindingId) {
+                val newSize = (binding.size + delta).coerceIn(0.5f, 2.5f)
+                binding.copy(size = newSize)
+            } else {
+                binding
+            }
+        }
         saveActiveProfile(current.copy(bindings = updatedBindings))
     }
 
