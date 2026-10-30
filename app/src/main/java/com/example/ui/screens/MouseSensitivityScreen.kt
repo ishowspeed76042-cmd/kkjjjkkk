@@ -71,6 +71,7 @@ fun MouseSensitivityScreen(
 
     var sensX by remember(cameraConfig.sensitivityX) { mutableFloatStateOf(cameraConfig.sensitivityX) }
     var sensY by remember(cameraConfig.sensitivityY) { mutableFloatStateOf(cameraConfig.sensitivityY) }
+    var speedMultiplier by remember(cameraConfig.speedMultiplier) { mutableFloatStateOf(cameraConfig.speedMultiplier) }
     var deadzone by remember(cameraConfig.deadzone) { mutableFloatStateOf(cameraConfig.deadzone) }
     var smoothing by remember(cameraConfig.smoothingFactor) { mutableFloatStateOf(cameraConfig.smoothingFactor) }
     var invertY by remember(cameraConfig.invertY) { mutableStateOf(cameraConfig.invertY) }
@@ -234,6 +235,34 @@ fun MouseSensitivityScreen(
                     },
                     valueRange = 0.2f..3.0f,
                     colors = SliderDefaults.colors(thumbColor = CyberCyan, activeTrackColor = CyberCyan)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Camera Turn Speed Multiplier (Amplification for quick 360 rotation)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("Turn Speed Multiplier (FPS Look)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Boosts turning rate so slight mouse moves turn 360° without lag", fontSize = 11.sp, color = TextSecondary)
+                    }
+                    Text(
+                        "${String.format("%.1f", speedMultiplier)}x",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NeonGreen
+                    )
+                }
+                Slider(
+                    value = speedMultiplier,
+                    onValueChange = {
+                        speedMultiplier = it
+                        onUpdateCameraConfig(cameraConfig.copy(speedMultiplier = it))
+                    },
+                    valueRange = 1.0f..15.0f,
+                    colors = SliderDefaults.colors(thumbColor = NeonGreen, activeTrackColor = NeonGreen)
                 )
 
                 Divider(color = DarkBorder, modifier = Modifier.padding(vertical = 12.dp))

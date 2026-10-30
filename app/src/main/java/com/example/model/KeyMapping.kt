@@ -25,7 +25,8 @@ data class KeyBinding(
     val targetX: Float, // Normalized 0.0f..1.0f (Screen width ratio)
     val targetY: Float, // Normalized 0.0f..1.0f (Screen height ratio)
     val actionType: ActionType = ActionType.TAP,
-    val category: BindingCategory = BindingCategory.COMBAT
+    val category: BindingCategory = BindingCategory.COMBAT,
+    val size: Float = 1.0f // Size scale multiplier (0.6f to 2.5f)
 ) {
     fun toJsonObject(): JSONObject {
         return JSONObject().apply {
@@ -37,6 +38,7 @@ data class KeyBinding(
             put("targetY", targetY.toDouble())
             put("actionType", actionType.name)
             put("category", category.name)
+            put("size", size.toDouble())
         }
     }
 
@@ -58,7 +60,8 @@ data class KeyBinding(
                     BindingCategory.valueOf(json.optString("category", BindingCategory.COMBAT.name))
                 } catch (e: Exception) {
                     BindingCategory.COMBAT
-                }
+                },
+                size = json.optDouble("size", 1.0).toFloat().coerceIn(0.5f, 3.0f)
             )
         }
     }
@@ -69,6 +72,7 @@ data class JoystickConfig(
     val centerX: Float = 0.18f,
     val centerY: Float = 0.72f,
     val radius: Float = 0.08f,
+    val dragDistance: Float = 0.14f, // Travel distance for active drag (ensures Free Fire walk/sprint)
     val upKey: Int = KeyEvent.KEYCODE_W,
     val downKey: Int = KeyEvent.KEYCODE_S,
     val leftKey: Int = KeyEvent.KEYCODE_A,
@@ -81,6 +85,7 @@ data class JoystickConfig(
             put("centerX", centerX.toDouble())
             put("centerY", centerY.toDouble())
             put("radius", radius.toDouble())
+            put("dragDistance", dragDistance.toDouble())
             put("upKey", upKey)
             put("downKey", downKey)
             put("leftKey", leftKey)
@@ -96,6 +101,7 @@ data class JoystickConfig(
                 centerX = json.optDouble("centerX", 0.18).toFloat(),
                 centerY = json.optDouble("centerY", 0.72).toFloat(),
                 radius = json.optDouble("radius", 0.08).toFloat(),
+                dragDistance = json.optDouble("dragDistance", 0.14).toFloat(),
                 upKey = json.optInt("upKey", KeyEvent.KEYCODE_W),
                 downKey = json.optInt("downKey", KeyEvent.KEYCODE_S),
                 leftKey = json.optInt("leftKey", KeyEvent.KEYCODE_A),
@@ -109,8 +115,9 @@ data class JoystickConfig(
 data class CameraSwipeConfig(
     val sensitivityX: Float = 1.0f,
     val sensitivityY: Float = 0.9f,
+    val speedMultiplier: Float = 6.0f, // Amplifies mouse delta for responsive 360 camera turns
     val invertY: Boolean = false,
-    val deadzone: Float = 1.2f, // Pixel delta deadzone
+    val deadzone: Float = 1.0f, // Pixel delta deadzone
     val smoothingFactor: Float = 0.85f, // 0.0 = direct, 1.0 = heavy smoothing
     val zoneLeft: Float = 0.50f, // Normalized screen boundary for swipe injection
     val zoneTop: Float = 0.15f,
@@ -123,6 +130,7 @@ data class CameraSwipeConfig(
         return JSONObject().apply {
             put("sensitivityX", sensitivityX.toDouble())
             put("sensitivityY", sensitivityY.toDouble())
+            put("speedMultiplier", speedMultiplier.toDouble())
             put("invertY", invertY)
             put("deadzone", deadzone.toDouble())
             put("smoothingFactor", smoothingFactor.toDouble())
@@ -140,8 +148,9 @@ data class CameraSwipeConfig(
             return CameraSwipeConfig(
                 sensitivityX = json.optDouble("sensitivityX", 1.0).toFloat(),
                 sensitivityY = json.optDouble("sensitivityY", 0.9).toFloat(),
+                speedMultiplier = json.optDouble("speedMultiplier", 6.0).toFloat(),
                 invertY = json.optBoolean("invertY", false),
-                deadzone = json.optDouble("deadzone", 1.2).toFloat(),
+                deadzone = json.optDouble("deadzone", 1.0).toFloat(),
                 smoothingFactor = json.optDouble("smoothingFactor", 0.85).toFloat(),
                 zoneLeft = json.optDouble("zoneLeft", 0.50).toFloat(),
                 zoneTop = json.optDouble("zoneTop", 0.15).toFloat(),
@@ -163,7 +172,8 @@ data class MappingProfile(
     val joystick: JoystickConfig = JoystickConfig(),
     val camera: CameraSwipeConfig = CameraSwipeConfig(),
     val floatingOverlayEnabled: Boolean = false,
-    val overlayOpacity: Float = 0.70f
+    val overlayOpacity: Float = 0.70f,
+    val globalButtonScale: Float = 1.0f // Global scale for all HUD pins (0.6f .. 2.0f)
 ) {
     fun toJsonString(indent: Int = 2): String {
         val root = JSONObject().apply {
@@ -173,6 +183,7 @@ data class MappingProfile(
             put("isDefault", isDefault)
             put("floatingOverlayEnabled", floatingOverlayEnabled)
             put("overlayOpacity", overlayOpacity.toDouble())
+            put("globalButtonScale", globalButtonScale.toDouble())
             put("joystick", joystick.toJsonObject())
             put("camera", camera.toJsonObject())
             val bindingsArray = JSONArray()
@@ -200,6 +211,7 @@ data class MappingProfile(
                 isDefault = root.optBoolean("isDefault", false),
                 floatingOverlayEnabled = root.optBoolean("floatingOverlayEnabled", false),
                 overlayOpacity = root.optDouble("overlayOpacity", 0.70).toFloat(),
+                globalButtonScale = root.optDouble("globalButtonScale", 1.0).toFloat().coerceIn(0.5f, 2.5f),
                 joystick = root.optJSONObject("joystick")?.let { JoystickConfig.fromJsonObject(it) } ?: JoystickConfig(),
                 camera = root.optJSONObject("camera")?.let { CameraSwipeConfig.fromJsonObject(it) } ?: CameraSwipeConfig(),
                 bindings = bindingsList

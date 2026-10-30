@@ -7,10 +7,19 @@ import android.view.KeyEvent
 import android.view.WindowManager
 import com.example.data.ProfileRepository
 import com.example.engine.GestureInjector
+import com.example.model.JoystickConfig
 import com.example.model.MappingProfile
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class KeymapperAccessibilityService : AccessibilityService() {
 
@@ -29,6 +38,9 @@ class KeymapperAccessibilityService : AccessibilityService() {
         // Last pressed key event log for test sandbox & stats
         val lastKeyEventFlow = MutableStateFlow<String?>(null)
 
+        var currentServiceInstance: KeymapperAccessibilityService? = null
+            private set
+
         fun setMappingEnabled(enabled: Boolean) {
             _isMappingEnabled.value = enabled
         }
@@ -42,15 +54,21 @@ class KeymapperAccessibilityService : AccessibilityService() {
         }
     }
 
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val pressedMovementKeys = mutableSetOf<Int>()
+    private var joystickLoopJob: Job? = null
     private var repository: ProfileRepository? = null
+
+    private var currentDirX = 0f
+    private var currentDirY = 0f
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        currentServiceInstance = this
         _isServiceConnected.value = true
         repository = ProfileRepository.getInstance(applicationContext)
 
-        // Determine screen dimensions
+        // Determine real screen dimensions
         val wm = getSystemService(WINDOW_SERVICE) as? WindowManager
         val displayMetrics = DisplayMetrics()
         @Suppress("DEPRECATION")
@@ -72,8 +90,15 @@ class KeymapperAccessibilityService : AccessibilityService() {
         if (!_isMappingEnabled.value) {
             return super.onKeyEvent(event)
         }
+        return processKeyEvent(event)
+    }
 
-        val profile = repository?.activeProfile?.value ?: return super.onKeyEvent(event)
+    /**
+     * Centralized key event processor called either by AccessibilityService
+     * or by the focused pointer capture overlay window.
+     */
+    fun processKeyEvent(event: KeyEvent): Boolean {
+        val profile = repository?.activeProfile?.value ?: return false
         val keyCode = event.keyCode
         val action = event.action
 
@@ -88,31 +113,38 @@ class KeymapperAccessibilityService : AccessibilityService() {
             return true
         }
 
-        // Check for Movement (WASD) keys
+        // Check for Movement (WASD) keys: continuous active drag in Free Fire
         val joystick = profile.joystick
         if (joystick.enabled && (keyCode == joystick.upKey || keyCode == joystick.downKey ||
                     keyCode == joystick.leftKey || keyCode == joystick.rightKey)
         ) {
-            if (action == KeyEvent.ACTION_DOWN) {
-                pressedMovementKeys.add(keyCode)
-            } else if (action == KeyEvent.ACTION_UP) {
-                pressedMovementKeys.remove(keyCode)
-            }
+            synchronized(pressedMovementKeys) {
+                if (action == KeyEvent.ACTION_DOWN) {
+                    pressedMovementKeys.add(keyCode)
+                } else if (action == KeyEvent.ACTION_UP) {
+                    pressedMovementKeys.remove(keyCode)
+                }
 
-            var dirX = 0f
-            var dirY = 0f
-            if (joystick.rightKey in pressedMovementKeys) dirX += 1f
-            if (joystick.leftKey in pressedMovementKeys) dirX -= 1f
-            if (joystick.downKey in pressedMovementKeys) dirY += 1f
-            if (joystick.upKey in pressedMovementKeys) dirY -= 1f
+                var dx = 0f
+                var dy = 0f
+                if (joystick.rightKey in pressedMovementKeys) dx += 1f
+                if (joystick.leftKey in pressedMovementKeys) dx -= 1f
+                if (joystick.downKey in pressedMovementKeys) dy += 1f
+                if (joystick.upKey in pressedMovementKeys) dy -= 1f
 
-            if (dirX != 0f || dirY != 0f) {
-                GestureInjector.instance.injectJoystickVector(joystick, dirX, dirY)
+                currentDirX = dx
+                currentDirY = dy
+
+                if (dx != 0f || dy != 0f) {
+                    startJoystickDragLoop(joystick)
+                } else {
+                    stopJoystickDragLoop()
+                }
             }
             return true
         }
 
-        // Check for mapped action keys
+        // Check for mapped action keys (Space, R, C, Z, 1, 2, 3, etc.)
         val matchedBinding = profile.bindings.find { it.keyCode == keyCode }
         if (matchedBinding != null) {
             if (action == KeyEvent.ACTION_DOWN) {
@@ -125,14 +157,37 @@ class KeymapperAccessibilityService : AccessibilityService() {
             return true
         }
 
-        return super.onKeyEvent(event)
+        return false
+    }
+
+    private fun startJoystickDragLoop(joystick: JoystickConfig) {
+        if (joystickLoopJob?.isActive == true) return
+        joystickLoopJob = serviceScope.launch {
+            while (isActive) {
+                val dx = currentDirX
+                val dy = currentDirY
+                if (dx != 0f || dy != 0f) {
+                    GestureInjector.instance.injectJoystickVector(joystick, dx, dy)
+                } else {
+                    break
+                }
+                // Pulse interval to sustain continuous joystick movement in Free Fire
+                delay(55L)
+            }
+        }
+    }
+
+    private fun stopJoystickDragLoop() {
+        joystickLoopJob?.cancel()
+        joystickLoopJob = null
     }
 
     override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) {
-        // Not used for active gesture injection
+        // Not used
     }
 
     override fun onInterrupt() {
+        stopJoystickDragLoop()
         pressedMovementKeys.clear()
         GestureInjector.instance.resetVirtualPointer()
         Log.d(TAG, "Keymapper Accessibility Service interrupted")
@@ -140,7 +195,10 @@ class KeymapperAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        currentServiceInstance = null
         _isServiceConnected.value = false
+        stopJoystickDragLoop()
+        serviceScope.cancel()
         GestureInjector.instance.detachService()
         Log.d(TAG, "Keymapper Accessibility Service destroyed")
     }

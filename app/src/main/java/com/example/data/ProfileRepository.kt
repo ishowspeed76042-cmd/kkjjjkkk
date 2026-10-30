@@ -213,6 +213,11 @@ class ProfileRepository(private val context: Context) {
         saveActiveProfile(current.copy(joystick = joystickConfig))
     }
 
+    fun updateGlobalButtonScale(scale: Float) {
+        val current = _activeProfile.value
+        saveActiveProfile(current.copy(globalButtonScale = scale))
+    }
+
     fun toggleFloatingOverlay(enabled: Boolean) {
         val current = _activeProfile.value
         saveActiveProfile(current.copy(floatingOverlayEnabled = enabled))

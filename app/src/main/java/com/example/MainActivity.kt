@@ -206,6 +206,7 @@ fun MainAppContent(
                     onUpdateBinding = { updated -> repository.updateBinding(updated) },
                     onDeleteBinding = { id -> repository.deleteBinding(id) },
                     onUpdateJoystick = { joy -> repository.updateJoystickConfig(joy) },
+                    onUpdateGlobalScale = { scale -> repository.updateGlobalButtonScale(scale) },
                     onResetDefaults = { repository.resetToDefaults() }
                 )
                 2 -> MouseSensitivityScreen(

@@ -9,14 +9,13 @@ import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 import com.example.data.ProfileRepository
 import com.example.engine.GestureInjector
 import com.example.model.KeyBinding
@@ -43,8 +42,10 @@ class FloatingOverlayManager(private val context: Context) {
     private var keyPinsOverlayView: FrameLayout? = null
     private var mouseCaptureView: View? = null
 
-    private var isEditMode = false
     private var isOverlayVisible = false
+    private var lastMouseX = 0f
+    private var lastMouseY = 0f
+    private var hasPrevMousePos = false
 
     fun start() {
         scope.launch {
@@ -78,7 +79,6 @@ class FloatingOverlayManager(private val context: Context) {
 
     fun toggleOverlay(forceShow: Boolean? = null) {
         val shouldShow = forceShow ?: !isOverlayVisible
-        val profile = repository.activeProfile.value
         repository.toggleFloatingOverlay(shouldShow)
     }
 
@@ -107,7 +107,6 @@ class FloatingOverlayManager(private val context: Context) {
             y = 200
         }
 
-        // Create pill UI
         val pillLayout = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -119,17 +118,15 @@ class FloatingOverlayManager(private val context: Context) {
             }
         }
 
-        // Status text
         val titleText = TextView(context).apply {
             text = "⚡ Apex"
             setTextColor(Color.parseColor("#00E5FF"))
             textSize = 13f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setPadding(0, 0, 16, 0)
+            setPadding(0, 0, 14, 0)
         }
         pillLayout.addView(titleText)
 
-        // Mouse Lock toggle button
         val lockBtn = TextView(context).apply {
             text = if (KeymapperAccessibilityService.isMouseLocked.value) "🎯 LOCKED" else "🔓 UNLOCKED"
             setTextColor(if (KeymapperAccessibilityService.isMouseLocked.value) Color.parseColor("#00E676") else Color.parseColor("#FFB300"))
@@ -147,19 +144,17 @@ class FloatingOverlayManager(private val context: Context) {
         }
         pillLayout.addView(lockBtn)
 
-        // Edit HUD Pin mapping button
         val editBtn = TextView(context).apply {
-            text = "✏️ HUD"
+            text = "✏️ HUD Pins"
             setTextColor(Color.WHITE)
             textSize = 12f
-            setPadding(16, 8, 16, 8)
+            setPadding(14, 8, 14, 8)
             setOnClickListener {
                 toggleKeyPinsOverlay()
             }
         }
         pillLayout.addView(editBtn)
 
-        // Drag handler for the floating pill
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
@@ -201,7 +196,6 @@ class FloatingOverlayManager(private val context: Context) {
             windowManager.addView(pillLayout, params)
             floatingPillView = pillLayout
             isOverlayVisible = true
-            Log.d(TAG, "Floating pill added to WindowManager")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add floating pill", e)
         }
@@ -219,9 +213,7 @@ class FloatingOverlayManager(private val context: Context) {
     }
 
     /**
-     * Toggles the interactive visual on-screen HUD drag-editor:
-     * Shows translucent draggable button badges directly over Free Fire
-     * so user can align keys to game buttons with 100% precision!
+     * Toggles the interactive visual on-screen HUD drag-editor with Button Sizing
      */
     fun toggleKeyPinsOverlay() {
         if (keyPinsOverlayView != null) {
@@ -248,37 +240,81 @@ class FloatingOverlayManager(private val context: Context) {
         val screenH = GestureInjector.instance.screenHeight
 
         val rootOverlay = FrameLayout(context).apply {
-            setBackgroundColor(Color.argb(80, 0, 0, 0)) // Soft dark tint
+            setBackgroundColor(Color.argb(85, 0, 0, 0))
         }
 
-        // Header instruction bar
+        // Header instruction & Size controls bar
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(32, 20, 32, 20)
-            setBackgroundColor(Color.parseColor("#CC131B2E"))
+            setPadding(28, 16, 28, 16)
+            setBackgroundColor(Color.parseColor("#EE131B2E"))
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply { gravity = Gravity.TOP }
 
             val infoText = TextView(context).apply {
-                text = "🎯 Drag & position keys over Free Fire buttons. Tap 'Save HUD' when done."
+                text = "🎯 Drag keys over Free Fire buttons. Use +/- to resize buttons."
                 setTextColor(Color.WHITE)
-                textSize = 13f
+                textSize = 12f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             addView(infoText)
+
+            // Button Size Decrease
+            val btnSmaller = TextView(context).apply {
+                text = "➖ Size"
+                setTextColor(Color.WHITE)
+                textSize = 12f
+                setPadding(16, 10, 16, 10)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#233152"))
+                    cornerRadius = 14f
+                }
+                setOnClickListener {
+                    val newScale = (profile.globalButtonScale - 0.15f).coerceAtLeast(0.5f)
+                    repository.saveActiveProfile(profile.copy(globalButtonScale = newScale))
+                    hideKeyPinsOverlay()
+                    showKeyPinsOverlay()
+                }
+            }
+            addView(btnSmaller)
+
+            val spacer = View(context).apply { layoutParams = LinearLayout.LayoutParams(12, 1) }
+            addView(spacer)
+
+            // Button Size Increase
+            val btnLarger = TextView(context).apply {
+                text = "➕ Size"
+                setTextColor(Color.WHITE)
+                textSize = 12f
+                setPadding(16, 10, 16, 10)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#233152"))
+                    cornerRadius = 14f
+                }
+                setOnClickListener {
+                    val newScale = (profile.globalButtonScale + 0.15f).coerceAtMost(2.5f)
+                    repository.saveActiveProfile(profile.copy(globalButtonScale = newScale))
+                    hideKeyPinsOverlay()
+                    showKeyPinsOverlay()
+                }
+            }
+            addView(btnLarger)
+
+            val spacer2 = View(context).apply { layoutParams = LinearLayout.LayoutParams(16, 1) }
+            addView(spacer2)
 
             val doneBtn = TextView(context).apply {
                 text = "✓ Save HUD"
                 setTextColor(Color.parseColor("#0B0F19"))
                 textSize = 13f
-                setPadding(28, 14, 28, 14)
+                setPadding(24, 12, 24, 12)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#00E5FF"))
-                    cornerRadius = 20f
+                    cornerRadius = 18f
                 }
                 setOnClickListener {
                     hideKeyPinsOverlay()
@@ -291,7 +327,7 @@ class FloatingOverlayManager(private val context: Context) {
         // Draw Joystick circle
         val joy = profile.joystick
         if (joy.enabled) {
-            val joySize = (joy.radius * 2 * screenW).toInt()
+            val joySize = (joy.radius * 2 * screenW * profile.globalButtonScale).toInt().coerceIn(120, 360)
             val joyView = FrameLayout(context).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
@@ -302,7 +338,7 @@ class FloatingOverlayManager(private val context: Context) {
                     text = "WASD\nMove"
                     gravity = Gravity.CENTER
                     setTextColor(Color.WHITE)
-                    textSize = 11f
+                    textSize = 12f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 addView(joyLabel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
@@ -317,27 +353,29 @@ class FloatingOverlayManager(private val context: Context) {
             rootOverlay.addView(joyView, joyParams)
         }
 
-        // Draw each keybinding badge as a draggable badge
+        // Draw each keybinding badge with DYNAMIC SCALED SIZE
         profile.bindings.forEach { binding ->
-            val pinSize = 130
+            val baseSize = 120
+            val pinSize = (baseSize * binding.size * profile.globalButtonScale).toInt().coerceIn(60, 280)
+
             val badge = FrameLayout(context).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     when (binding.id) {
                         "fire" -> {
-                            setColor(Color.argb(190, 255, 82, 82))
+                            setColor(Color.argb(200, 255, 82, 82))
                             setStroke(3, Color.WHITE)
                         }
                         "aim" -> {
-                            setColor(Color.argb(190, 255, 179, 0))
+                            setColor(Color.argb(200, 255, 179, 0))
                             setStroke(3, Color.WHITE)
                         }
                         "gloo_wall" -> {
-                            setColor(Color.argb(190, 0, 230, 118))
+                            setColor(Color.argb(200, 0, 230, 118))
                             setStroke(3, Color.WHITE)
                         }
                         else -> {
-                            setColor(Color.argb(190, 26, 36, 61))
+                            setColor(Color.argb(200, 26, 36, 61))
                             setStroke(2, Color.parseColor("#00E5FF"))
                         }
                     }
@@ -347,7 +385,7 @@ class FloatingOverlayManager(private val context: Context) {
                     text = binding.keyLabel
                     gravity = Gravity.CENTER
                     setTextColor(Color.WHITE)
-                    textSize = 12f
+                    textSize = (11f * binding.size * profile.globalButtonScale).coerceIn(9f, 20f)
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 addView(labelView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
@@ -378,7 +416,6 @@ class FloatingOverlayManager(private val context: Context) {
         try {
             windowManager.addView(rootOverlay, overlayParams)
             keyPinsOverlayView = rootOverlay
-            Log.d(TAG, "KeyPinsOverlay displayed for HUD editing")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to display KeyPinsOverlay", e)
         }
@@ -414,7 +451,7 @@ class FloatingOverlayManager(private val context: Context) {
                     startTouchY = event.rawY
                     startLeftMargin = params.leftMargin
                     startTopMargin = params.topMargin
-                    v.animate().scaleX(1.15f).scaleY(1.15f).setDuration(100).start()
+                    v.animate().scaleX(1.12f).scaleY(1.12f).setDuration(80).start()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -426,7 +463,7 @@ class FloatingOverlayManager(private val context: Context) {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100).start()
+                    v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(80).start()
                     val centerX = params.leftMargin + params.width / 2f
                     val centerY = params.topMargin + params.height / 2f
                     val normX = (centerX / screenW).coerceIn(0f, 1f)
@@ -441,9 +478,8 @@ class FloatingOverlayManager(private val context: Context) {
 
     /**
      * Mouse Capture Window:
-     * When Mouse Lock is engaged, requests Pointer Capture to capture physical mouse
-     * movements (AXIS_RELATIVE_X / AXIS_RELATIVE_Y) without showing the system cursor,
-     * translating motion to camera swipe gestures in real-time.
+     * Full-screen transparent overlay capable of acquiring and maintaining pointer capture.
+     * Converts raw physical mouse deltas into continuous FPS camera rotations.
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun enableMouseCapture() {
@@ -457,30 +493,50 @@ class FloatingOverlayManager(private val context: Context) {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        // Invisible full-screen view capable of receiving focused pointer capture
+        // Full-screen focused window to reliably receive mouse capture & keys
         val params = WindowManager.LayoutParams(
-            1, 1, // Minimal footprint
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
             layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = 0
         }
 
-        val captureView = View(context).apply {
+        val captureView = object : FrameLayout(context) {
+            override fun onCapturedPointerEvent(event: MotionEvent): Boolean {
+                handleCapturedPointer(event)
+                return true
+            }
+
+            override fun onPointerCaptureChange(hasCapture: Boolean) {
+                super.onPointerCaptureChange(hasCapture)
+                if (!hasCapture && KeymapperAccessibilityService.isMouseLocked.value) {
+                    post { requestPointerCapture() }
+                }
+            }
+
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                val handled = KeymapperAccessibilityService.currentServiceInstance?.processKeyEvent(event) ?: false
+                return handled || super.dispatchKeyEvent(event)
+            }
+        }.apply {
+            setBackgroundColor(Color.TRANSPARENT)
             isFocusable = true
             isFocusableInTouchMode = true
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            captureView.setOnCapturedPointerListener { _, event ->
-                handleCapturedPointer(event)
-                true
+        // Subtle center crosshair to indicate FPS lock active
+        val crosshair = View(context).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.argb(160, 0, 229, 255))
             }
+            layoutParams = FrameLayout.LayoutParams(12, 12, Gravity.CENTER)
         }
+        captureView.addView(crosshair)
 
         captureView.setOnGenericMotionListener { _, event ->
             handleCapturedPointer(event)
@@ -490,10 +546,14 @@ class FloatingOverlayManager(private val context: Context) {
         try {
             windowManager.addView(captureView, params)
             mouseCaptureView = captureView
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                captureView.requestPointerCapture()
+            hasPrevMousePos = false
+            captureView.post {
+                captureView.requestFocus()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    captureView.requestPointerCapture()
+                }
             }
-            Log.d(TAG, "Mouse pointer capture view enabled")
+            Log.d(TAG, "Full-screen mouse pointer capture active")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add mouse capture view", e)
         }
@@ -511,22 +571,29 @@ class FloatingOverlayManager(private val context: Context) {
             dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
         }
 
+        // Fallback for mice that send absolute coordinates
         if (dx == 0f && dy == 0f) {
-            dx = event.getAxisValue(MotionEvent.AXIS_X)
-            dy = event.getAxisValue(MotionEvent.AXIS_Y)
+            if (hasPrevMousePos) {
+                dx = event.x - lastMouseX
+                dy = event.y - lastMouseY
+            }
+            lastMouseX = event.x
+            lastMouseY = event.y
+            hasPrevMousePos = true
         }
 
         if (dx != 0f || dy != 0f) {
             GestureInjector.instance.injectMouseDelta(dx, dy, camera)
         }
 
-        // Check for Left Click (Fire) & Right Click (Aim)
+        // Left Click -> Fire button
         val buttonState = event.buttonState
         if ((buttonState and MotionEvent.BUTTON_PRIMARY) != 0) {
             profile.bindings.find { it.id == "fire" }?.let { fire ->
                 GestureInjector.instance.injectTap(fire.targetX, fire.targetY, "L-Click")
             }
         }
+        // Right Click -> Aim / ADS button
         if ((buttonState and MotionEvent.BUTTON_SECONDARY) != 0) {
             profile.bindings.find { it.id == "aim" }?.let { aim ->
                 GestureInjector.instance.injectTap(aim.targetX, aim.targetY, "R-Click")
@@ -544,6 +611,7 @@ class FloatingOverlayManager(private val context: Context) {
             Log.e(TAG, "Error removing mouse capture view", e)
         } finally {
             mouseCaptureView = null
+            hasPrevMousePos = false
         }
     }
 }

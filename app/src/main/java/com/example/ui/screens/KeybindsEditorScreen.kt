@@ -31,7 +31,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -89,6 +89,7 @@ fun KeybindsEditorScreen(
     onUpdateBinding: (KeyBinding) -> Unit,
     onDeleteBinding: (String) -> Unit,
     onUpdateJoystick: (JoystickConfig) -> Unit,
+    onUpdateGlobalScale: (Float) -> Unit,
     onResetDefaults: () -> Unit
 ) {
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
@@ -143,6 +144,36 @@ fun KeybindsEditorScreen(
                 }
             )
         } else {
+            // Global Button Size Scale Card
+            GamingCard(borderColor = CyberCyan.copy(alpha = 0.35f)) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Button Size Scale (छोटे-बड़े बटन्स)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text("Enlarge or shrink all on-screen mapping pins", fontSize = 11.sp, color = TextSecondary)
+                        }
+                        Text(
+                            "${(profile.globalButtonScale * 100).toInt()}%",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberCyan
+                        )
+                    }
+                    Slider(
+                        value = profile.globalButtonScale,
+                        onValueChange = { onUpdateGlobalScale(it) },
+                        valueRange = 0.6f..2.2f,
+                        colors = SliderDefaults.colors(thumbColor = CyberCyan, activeTrackColor = CyberCyan)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
             // Header with Add Button
             Row(
                 modifier = Modifier
@@ -202,6 +233,7 @@ fun KeybindsEditorScreen(
                 items(filteredBindings, key = { it.id }) { binding ->
                     BindingRowCard(
                         binding = binding,
+                        globalScale = profile.globalButtonScale,
                         onEdit = { editingBinding = binding },
                         onDelete = { onDeleteBinding(binding.id) }
                     )
@@ -237,7 +269,8 @@ fun KeybindsEditorScreen(
                 targetX = 0.50f,
                 targetY = 0.50f,
                 actionType = ActionType.TAP,
-                category = BindingCategory.TACTICAL
+                category = BindingCategory.TACTICAL,
+                size = 1.0f
             ),
             isNew = true,
             onDismiss = { isAddingNew = false },
@@ -264,7 +297,7 @@ fun InteractiveHudPreview(
             color = TextPrimary
         )
         Text(
-            text = "Drag keys on the screen to align with your in-game layout. Tap a key to rebind.",
+            text = "Drag keys on the screen to align with your in-game layout. Tap a key to rebind or resize.",
             fontSize = 12.sp,
             color = TextSecondary,
             modifier = Modifier.padding(bottom = 8.dp)
@@ -282,7 +315,6 @@ fun InteractiveHudPreview(
             val widthPx = constraints.maxWidth.toFloat()
             val heightPx = constraints.maxHeight.toFloat()
 
-            // Subtle grid & crosshair
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -310,16 +342,17 @@ fun InteractiveHudPreview(
                     )
                 }
 
-                // Joystick Pin
+                // Joystick Pin (WASD)
                 val joy = profile.joystick
                 if (joy.enabled) {
                     var joyOffsetX by remember(joy.centerX) { mutableFloatStateOf(joy.centerX * widthPx) }
                     var joyOffsetY by remember(joy.centerY) { mutableFloatStateOf(joy.centerY * heightPx) }
+                    val joySizeDp = (56 * profile.globalButtonScale).dp
 
                     Box(
                         modifier = Modifier
-                            .offset { IntOffset((joyOffsetX - 30).roundToInt(), (joyOffsetY - 30).roundToInt()) }
-                            .size(60.dp)
+                            .offset { IntOffset((joyOffsetX - joySizeDp.value / 2).roundToInt(), (joyOffsetY - joySizeDp.value / 2).roundToInt()) }
+                            .size(joySizeDp)
                             .background(CyberCyan.copy(alpha = 0.25f), CircleShape)
                             .border(BorderStroke(2.dp, CyberCyan), CircleShape)
                             .pointerInput(Unit) {
@@ -342,7 +375,7 @@ fun InteractiveHudPreview(
                     }
                 }
 
-                // Draggable key badges
+                // Draggable key badges with dynamic size
                 profile.bindings.forEach { binding ->
                     var pinX by remember(binding.targetX) { mutableFloatStateOf(binding.targetX * widthPx) }
                     var pinY by remember(binding.targetY) { mutableFloatStateOf(binding.targetY * heightPx) }
@@ -355,10 +388,12 @@ fun InteractiveHudPreview(
                         else -> CyberCyan
                     }
 
+                    val pinSizeDp = (40 * binding.size * profile.globalButtonScale).dp.coerceIn(24.dp, 80.dp)
+
                     Box(
                         modifier = Modifier
-                            .offset { IntOffset((pinX - 22).roundToInt(), (pinY - 22).roundToInt()) }
-                            .size(44.dp)
+                            .offset { IntOffset((pinX - pinSizeDp.value / 2).roundToInt(), (pinY - pinSizeDp.value / 2).roundToInt()) }
+                            .size(pinSizeDp)
                             .background(DarkSurfaceElevated.copy(alpha = 0.85f), CircleShape)
                             .border(BorderStroke(1.5.dp, pinColor), CircleShape)
                             .clickable { onSelectBinding(binding) }
@@ -382,7 +417,7 @@ fun InteractiveHudPreview(
                         Text(
                             text = binding.keyLabel,
                             color = pinColor,
-                            fontSize = 11.sp,
+                            fontSize = (11f * binding.size * profile.globalButtonScale).coerceIn(8f, 16f).sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -395,6 +430,7 @@ fun InteractiveHudPreview(
 @Composable
 fun BindingRowCard(
     binding: KeyBinding,
+    globalScale: Float,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -431,14 +467,23 @@ fun BindingRowCard(
                 Spacer(modifier = Modifier.width(14.dp))
 
                 Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = binding.name,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Size: ${(binding.size * 100).toInt()}%",
+                            fontSize = 10.sp,
+                            color = CyberAmber,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                     Text(
-                        text = binding.name,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "Screen Pos: (${(binding.targetX * 100).toInt()}%, ${(binding.targetY * 100).toInt()}%) • ${binding.category.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                        text = "Pos: (${(binding.targetX * 100).toInt()}%, ${(binding.targetY * 100).toInt()}%) • ${binding.category.name.lowercase().replaceFirstChar { it.uppercase() }}",
                         fontSize = 11.sp,
                         color = TextSecondary
                     )
@@ -473,8 +518,8 @@ fun JoystickConfigCard(
                     Icon(Icons.Default.Gamepad, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(22.dp))
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        Text("WASD Movement Joystick", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        Text("Virtual touch joystick for continuous character movement", fontSize = 11.sp, color = TextSecondary)
+                        Text("WASD Movement Joystick (Free Fire Drag)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Smooth touch drag outward so character walks & sprints without stopping", fontSize = 11.sp, color = TextSecondary)
                     }
                 }
             }
@@ -494,6 +539,26 @@ fun JoystickConfigCard(
             }
 
             Spacer(modifier = Modifier.height(10.dp))
+
+            // Drag Distance / Sprint Reach Slider
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("Drag Distance / Sprint Reach (हल्का सा ड्रैग)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("Increases drag reach to activate full walk / sprint in Free Fire", fontSize = 10.sp, color = TextSecondary)
+                }
+                Text("${(joystick.dragDistance * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NeonGreen)
+            }
+            Slider(
+                value = joystick.dragDistance,
+                onValueChange = { onUpdate(joystick.copy(dragDistance = it)) },
+                valueRange = 0.08f..0.25f,
+                colors = SliderDefaults.colors(thumbColor = NeonGreen, activeTrackColor = NeonGreen)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Center X Slider
             Text(
@@ -536,6 +601,7 @@ fun EditBindingDialog(
     var keyCode by remember { mutableIntStateOf(binding.keyCode) }
     var targetX by remember { mutableFloatStateOf(binding.targetX) }
     var targetY by remember { mutableFloatStateOf(binding.targetY) }
+    var size by remember { mutableFloatStateOf(binding.size) }
     var category by remember { mutableStateOf(binding.category) }
 
     AlertDialog(
@@ -574,7 +640,6 @@ fun EditBindingDialog(
                         value = keyLabel,
                         onValueChange = {
                             keyLabel = it.take(6)
-                            // Derive basic keycode
                             if (it.isNotEmpty()) {
                                 val char = it.first().uppercaseChar()
                                 keyCode = when (char) {
@@ -619,6 +684,21 @@ fun EditBindingDialog(
                     }
                 }
 
+                // Button Size Scale Slider (बटन्स के साइज छोटे-बड़े)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Button Size Scale (बटन साइज)", fontSize = 12.sp, color = TextSecondary)
+                    Text("${(size * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CyberAmber)
+                }
+                Slider(
+                    value = size,
+                    onValueChange = { size = it },
+                    valueRange = 0.6f..2.5f,
+                    colors = SliderDefaults.colors(thumbColor = CyberAmber, activeTrackColor = CyberAmber)
+                )
+
                 // Coordinate Sliders
                 Text("Target X: ${(targetX * 100).toInt()}%", fontSize = 12.sp, color = TextSecondary)
                 Slider(
@@ -648,6 +728,7 @@ fun EditBindingDialog(
                             keyCode = keyCode,
                             targetX = targetX,
                             targetY = targetY,
+                            size = size,
                             category = category
                         )
                     )

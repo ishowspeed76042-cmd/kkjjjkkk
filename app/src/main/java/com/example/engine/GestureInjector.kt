@@ -10,7 +10,6 @@ import com.example.model.JoystickConfig
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlin.math.abs
 import kotlin.math.hypot
 
 data class VisualTouchEvent(
@@ -34,9 +33,11 @@ class GestureInjector {
     var screenWidth: Int = 1080
     var screenHeight: Int = 2400
 
-    // Virtual touch cursor for camera rotation
-    private var virtualCameraPoint: PointF? = null
-    private var lastMouseTime: Long = 0L
+    // Accumulated mouse deltas for smooth paced gesture dispatching
+    private var pendingDeltaX: Float = 0f
+    private var pendingDeltaY: Float = 0f
+    private var isSwipeBusy: Boolean = false
+    private val swipeLock = Any()
 
     // Live touch event stream for in-app visualizer & sandbox
     private val _visualTouchFlow = MutableSharedFlow<VisualTouchEvent>(extraBufferCapacity = 64)
@@ -49,7 +50,11 @@ class GestureInjector {
 
     fun detachService() {
         accessibilityService = null
-        virtualCameraPoint = null
+        synchronized(swipeLock) {
+            isSwipeBusy = false
+            pendingDeltaX = 0f
+            pendingDeltaY = 0f
+        }
         Log.d(TAG, "AccessibilityService detached from GestureInjector")
     }
 
@@ -67,17 +72,19 @@ class GestureInjector {
         val service = accessibilityService ?: return false
         val path = Path().apply {
             moveTo(px, py)
-            lineTo(px + 1f, py + 1f)
+            lineTo(px + 2f, py + 2f)
         }
 
-        val stroke = GestureDescription.StrokeDescription(path, 0, durationMs.coerceIn(10L, 100L))
+        val stroke = GestureDescription.StrokeDescription(path, 0, durationMs.coerceIn(15L, 60L))
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         return service.dispatchGesture(gesture, null, null)
     }
 
     /**
-     * Injects a continuous directional movement for WASD joystick.
+     * Injects an active drag stroke for the virtual joystick (WASD in Free Fire).
+     * Starts at joystick center and drags outward with sufficient distance
+     * to trigger full walking / sprinting in Free Fire.
      */
     fun injectJoystickVector(
         config: JoystickConfig,
@@ -86,10 +93,11 @@ class GestureInjector {
     ): Boolean {
         val centerX = config.centerX * screenWidth
         val centerY = config.centerY * screenHeight
-        val radiusPx = config.radius * screenWidth
+        // Use configurable dragDistance (e.g. 14% of screen) to ensure Free Fire sprint activation
+        val dragDistPx = config.dragDistance * screenWidth
 
-        val targetX = centerX + dirX * radiusPx
-        val targetY = centerY + dirY * radiusPx
+        val targetX = (centerX + dirX * dragDistPx).coerceIn(0f, screenWidth.toFloat())
+        val targetY = (centerY + dirY * dragDistPx).coerceIn(0f, screenHeight.toFloat())
 
         _visualTouchFlow.tryEmit(
             VisualTouchEvent(targetX, targetY, isMouseSwipe = false, label = "WASD")
@@ -101,93 +109,113 @@ class GestureInjector {
             lineTo(targetX, targetY)
         }
 
-        val stroke = GestureDescription.StrokeDescription(path, 0, 40L)
+        val stroke = GestureDescription.StrokeDescription(path, 0, 60L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         return service.dispatchGesture(gesture, null, null)
     }
 
     /**
-     * The Core Mouse-to-Touch Camera Rotation Swipe:
-     * Converts relative mouse deltas (dx, dy) into seamless continuous swipe gestures
-     * in the camera region. Automatically repositions virtual finger when reaching zone borders.
+     * Core FPS Mouse Look:
+     * Converts physical mouse movement into smooth, continuous camera swipes.
+     * Accumulates deltas and dispatches them sequentially through GestureResultCallback
+     * so no mouse movements are dropped by the OS gesture throttler.
      */
     fun injectMouseDelta(
         deltaX: Float,
         deltaY: Float,
         config: CameraSwipeConfig
-    ): Boolean {
-        // Deadzone filter to eliminate micro-jitter
-        val magnitude = hypot(deltaX, deltaY)
-        if (magnitude < config.deadzone) {
-            return false
+    ) {
+        val mag = hypot(deltaX, deltaY)
+        if (mag < config.deadzone) return
+
+        synchronized(swipeLock) {
+            pendingDeltaX += deltaX
+            pendingDeltaY += deltaY
+            if (!isSwipeBusy) {
+                dispatchPendingMouseSwipe(config)
+            }
+        }
+    }
+
+    private fun dispatchPendingMouseSwipe(config: CameraSwipeConfig) {
+        val service = accessibilityService ?: return
+
+        var curDx: Float
+        var curDy: Float
+        synchronized(swipeLock) {
+            curDx = pendingDeltaX
+            curDy = pendingDeltaY
+            pendingDeltaX = 0f
+            pendingDeltaY = 0f
+            if (hypot(curDx, curDy) < 0.5f) {
+                isSwipeBusy = false
+                return
+            }
+            isSwipeBusy = true
         }
 
-        // Camera zone bounding box in pixels
+        // Camera zone bounding box
         val zoneLeft = config.zoneLeft * screenWidth
         val zoneRight = config.zoneRight * screenWidth
         val zoneTop = config.zoneTop * screenHeight
         val zoneBottom = config.zoneBottom * screenHeight
-        val zoneCenterX = (zoneLeft + zoneRight) / 2f
-        val zoneCenterY = (zoneTop + zoneBottom) / 2f
+        val startX = (zoneLeft + zoneRight) / 2f
+        val startY = (zoneTop + zoneBottom) / 2f
 
-        // Initialize virtual camera point if idle or expired
-        val now = System.currentTimeMillis()
-        var currentPoint = virtualCameraPoint
-        if (currentPoint == null || (now - lastMouseTime) > 300L) {
-            currentPoint = PointF(zoneCenterX, zoneCenterY)
-        }
-        lastMouseTime = now
+        // Apply sensitivity, invert Y if needed, and speed multiplier
+        val effectiveDy = if (config.invertY) -curDy else curDy
+        val swipeLengthX = curDx * config.sensitivityX * config.speedMultiplier
+        val swipeLengthY = effectiveDy * config.sensitivityY * config.speedMultiplier
 
-        // Calculate scaled deltas
-        val effectiveDy = if (config.invertY) -deltaY else deltaY
-        val moveDx = deltaX * config.sensitivityX
-        val moveDy = effectiveDy * config.sensitivityY
+        // End point clamped inside swipe zone
+        val endX = (startX + swipeLengthX).coerceIn(zoneLeft + 20f, zoneRight - 20f)
+        val endY = (startY + swipeLengthY).coerceIn(zoneTop + 20f, zoneBottom - 20f)
 
-        var nextX = currentPoint.x + moveDx
-        var nextY = currentPoint.y + moveDy
-
-        // Margin inside swipe zone before resetting to center
-        val marginX = (zoneRight - zoneLeft) * 0.10f
-        val marginY = (zoneBottom - zoneTop) * 0.10f
-
-        // Check if virtual finger reached border of camera zone:
-        // Seamlessly reset to center like PC emulators do (lift touch and reposition)
-        if (nextX < (zoneLeft + marginX) || nextX > (zoneRight - marginX) ||
-            nextY < (zoneTop + marginY) || nextY > (zoneBottom - marginY)
-        ) {
-            currentPoint = PointF(zoneCenterX, zoneCenterY)
-            nextX = currentPoint.x + moveDx
-            nextY = currentPoint.y + moveDy
-        }
-
-        // Clamp inside camera bounds
-        val clampedNextX = nextX.coerceIn(zoneLeft, zoneRight)
-        val clampedNextY = nextY.coerceIn(zoneTop, zoneBottom)
-
-        // Notify visualizer
         _visualTouchFlow.tryEmit(
-            VisualTouchEvent(clampedNextX, clampedNextY, isMouseSwipe = true, label = "Look")
+            VisualTouchEvent(endX, endY, isMouseSwipe = true, label = "Aim")
         )
 
-        virtualCameraPoint = PointF(clampedNextX, clampedNextY)
-
-        val service = accessibilityService ?: return false
-
-        // Build swipe gesture
         val path = Path().apply {
-            moveTo(currentPoint.x, currentPoint.y)
-            lineTo(clampedNextX, clampedNextY)
+            moveTo(startX, startY)
+            lineTo(endX, endY)
         }
 
-        // Micro-swipe duration (16ms = ~60fps smooth gesture delivery)
-        val stroke = GestureDescription.StrokeDescription(path, 0, 16L)
+        val stroke = GestureDescription.StrokeDescription(path, 0, 28L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
-        return service.dispatchGesture(gesture, null, null)
+        val dispatched = service.dispatchGesture(
+            gesture,
+            object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    synchronized(swipeLock) {
+                        isSwipeBusy = false
+                    }
+                    dispatchPendingMouseSwipe(config)
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    synchronized(swipeLock) {
+                        isSwipeBusy = false
+                    }
+                    dispatchPendingMouseSwipe(config)
+                }
+            },
+            null
+        )
+
+        if (!dispatched) {
+            synchronized(swipeLock) {
+                isSwipeBusy = false
+            }
+        }
     }
 
     fun resetVirtualPointer() {
-        virtualCameraPoint = null
+        synchronized(swipeLock) {
+            pendingDeltaX = 0f
+            pendingDeltaY = 0f
+            isSwipeBusy = false
+        }
     }
 }
