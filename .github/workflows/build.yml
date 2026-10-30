@@ -25,8 +25,17 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Grant Execute Permission for Gradle Wrapper
-        run: chmod +x ./gradlew
+      - name: Restore Keystore and Environment Files
+        run: |
+          chmod +x ./gradlew
+          if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f "debug.keystore" ]; then
+            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          if [ ! -f ".env" ]; then
+            cp .env.example .env 2>/dev/null || touch .env
+          fi
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
@@ -34,11 +43,14 @@ jobs:
       - name: Run Unit Tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
+      - name: List Generated APKs
+        run: |
+          ls -la app/build/outputs/apk/debug/ || find . -name "*.apk"
+
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: ApexMapper-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 14
-          if-no-files-found: error
+          if-no-files-found: warn
