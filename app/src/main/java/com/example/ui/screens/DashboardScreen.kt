@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -69,6 +70,7 @@ import com.example.ui.components.StatusPill
 import com.example.ui.theme.CyberAmber
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
+import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.DarkSurfaceElevated
 import com.example.ui.theme.DarkSurfaceHighlight
 import com.example.ui.theme.NeonGreen
@@ -509,54 +511,216 @@ fun DashboardScreen(
             }
         }
 
-        // Quick Launch Free Fire Card
-        GamingCard(borderColor = CyberAmber.copy(alpha = 0.4f)) {
+        // Free Fire 3-Edition Game Launcher Card
+        FreeFireLaunchOptionsCard(context = context)
+    }
+}
+
+@Composable
+private fun FreeFireLaunchOptionsCard(context: Context) {
+    val pm = context.packageManager
+
+    val editions = listOf(
+        FreeFireGameOption(
+            id = "ff_max",
+            title = "Free Fire MAX",
+            subtitle = "Active on Play Store in India • High Graphics",
+            packageName = "com.dts.freefiremax",
+            playStorePackage = "com.dts.freefiremax",
+            tag = "RECOMMENDED IN INDIA",
+            tagColor = NeonGreen
+        ),
+        FreeFireGameOption(
+            id = "ff_india",
+            title = "Free Fire India",
+            subtitle = "Official India Release • Localized Edition",
+            packageName = "com.dts.freefirein",
+            playStorePackage = "com.dts.freefirein",
+            tag = "INDIA EXCLUSIVE",
+            tagColor = CyberCyan
+        ),
+        FreeFireGameOption(
+            id = "ff_global",
+            title = "Free Fire (Global)",
+            subtitle = "Standard Global Edition • Banned in India on Play Store",
+            packageName = "com.dts.freefireth",
+            playStorePackage = "com.dts.freefireth",
+            tag = "GLOBAL APK",
+            tagColor = CyberAmber
+        )
+    )
+
+    GamingCard(borderColor = CyberAmber.copy(alpha = 0.5f)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(CyberAmber.copy(alpha = 0.2f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.RocketLaunch,
+                        contentDescription = "Launch Game",
+                        tint = CyberAmber,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Game Launcher (3 Options)",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Select your installed edition to launch with ApexMapper controls",
+                        fontSize = 11.sp,
+                        color = TextSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // India Region Notice Banner
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .clip(RoundedCornerShape(10.dp)),
+                color = CyberCyan.copy(alpha = 0.08f),
+                border = BorderStroke(1.dp, CyberCyan.copy(alpha = 0.3f))
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "🇮🇳", fontSize = 18.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Playing from India? Use Free Fire MAX (accessible on Indian Play Store without 'Item not found' errors) or Free Fire India.",
+                        fontSize = 11.sp,
+                        color = TextPrimary,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 3 Editions List
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                editions.forEach { edition ->
+                    val isInstalled = pm.getLaunchIntentForPackage(edition.packageName) != null
+
+                    Surface(
                         modifier = Modifier
-                            .size(42.dp)
-                            .background(CyberAmber.copy(alpha = 0.2f), RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp)),
+                        color = if (isInstalled) DarkSurfaceElevated else DarkSurfaceHighlight,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isInstalled) NeonGreen.copy(alpha = 0.5f) else DarkBorder
+                        )
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.RocketLaunch,
-                            contentDescription = "Launch Free Fire",
-                            tint = CyberAmber,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "Launch Free Fire",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = "Start engine, then launch game to play with mouse & keyboard",
-                            fontSize = 11.sp,
-                            color = TextSecondary
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = edition.title,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        color = edition.tagColor.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = edition.tag,
+                                            color = edition.tagColor,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = edition.subtitle,
+                                    fontSize = 11.sp,
+                                    color = TextSecondary,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                                Text(
+                                    text = if (isInstalled) "✓ Installed on your device" else "Not installed on this device",
+                                    fontSize = 10.sp,
+                                    color = if (isInstalled) NeonGreen else TextTertiary,
+                                    fontWeight = if (isInstalled) FontWeight.SemiBold else FontWeight.Normal,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            if (isInstalled) {
+                                NeonButton(
+                                    text = "Launch",
+                                    onClick = {
+                                        val launchIntent = pm.getLaunchIntentForPackage(edition.packageName)
+                                        if (launchIntent != null) {
+                                            launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            context.startActivity(launchIntent)
+                                        }
+                                    },
+                                    isPrimary = true
+                                )
+                            } else {
+                                Surface(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            openStoreListing(context, edition.playStorePackage)
+                                        },
+                                    color = DarkSurface,
+                                    border = BorderStroke(1.dp, CyberAmber.copy(alpha = 0.7f))
+                                ) {
+                                    Text(
+                                        text = "Play Store",
+                                        color = CyberAmber,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
-
-                NeonButton(
-                    text = "Launch",
-                    onClick = { launchFreeFire(context) },
-                    isPrimary = true
-                )
             }
         }
     }
 }
+
+private data class FreeFireGameOption(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val packageName: String,
+    val playStorePackage: String,
+    val tag: String,
+    val tagColor: Color
+)
 
 @Composable
 private fun StatusRow(
@@ -656,25 +820,18 @@ private fun requestOverlayPermission(context: Context) {
     }
 }
 
-private fun launchFreeFire(context: Context) {
-    val pm = context.packageManager
-    val packages = listOf("com.dts.freefireth", "com.dts.freefiremax")
-    for (pkg in packages) {
-        val launchIntent = pm.getLaunchIntentForPackage(pkg)
-        if (launchIntent != null) {
-            launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            context.startActivity(launchIntent)
-            return
-        }
-    }
-    // Fallback: open play store for Free Fire if not installed
+private fun openStoreListing(context: Context, packageName: String) {
     try {
-        val storeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.dts.freefireth"))
+        val storeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))
         storeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
         context.startActivity(storeIntent)
     } catch (e: Exception) {
-        val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.dts.freefireth"))
-        webIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        context.startActivity(webIntent)
+        try {
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName"))
+            webIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            context.startActivity(webIntent)
+        } catch (e2: Exception) {
+            Toast.makeText(context, "Could not open Google Play Store for $packageName", Toast.LENGTH_SHORT).show()
+        }
     }
 }
