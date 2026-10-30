@@ -113,12 +113,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        inputDeviceManager.refreshDevices()
+        try {
+            if (::inputDeviceManager.isInitialized) {
+                inputDeviceManager.refreshDevices()
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        inputDeviceManager.release()
+        try {
+            if (::inputDeviceManager.isInitialized) {
+                inputDeviceManager.release()
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
     }
 }
 

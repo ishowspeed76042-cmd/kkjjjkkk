@@ -19,11 +19,24 @@ class ProfileRepository(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("apex_mapper_profiles", Context.MODE_PRIVATE)
 
-    private val _activeProfile = MutableStateFlow(loadActiveProfile())
-    val activeProfile: StateFlow<MappingProfile> = _activeProfile.asStateFlow()
+    private val _profiles: MutableStateFlow<List<MappingProfile>>
+    val profiles: StateFlow<List<MappingProfile>>
 
-    private val _profiles = MutableStateFlow(loadAllProfiles())
-    val profiles: StateFlow<List<MappingProfile>> = _profiles.asStateFlow()
+    private val _activeProfile: MutableStateFlow<MappingProfile>
+    val activeProfile: StateFlow<MappingProfile>
+
+    init {
+        val initialProfiles = loadInitialProfiles()
+        _profiles = MutableStateFlow(initialProfiles)
+        profiles = _profiles.asStateFlow()
+
+        val activeId = prefs.getString(PREF_ACTIVE_PROFILE_ID, null)
+        val initialActive = initialProfiles.find { it.id == activeId }
+            ?: initialProfiles.firstOrNull()
+            ?: getFreeFireDefaultProfile()
+        _activeProfile = MutableStateFlow(initialActive)
+        activeProfile = _activeProfile.asStateFlow()
+    }
 
     companion object {
         const val PREF_ACTIVE_PROFILE_ID = "active_profile_id"
@@ -121,11 +134,17 @@ class ProfileRepository(private val context: Context) {
         )
     }
 
-    private fun loadAllProfiles(): List<MappingProfile> {
+    private fun loadInitialProfiles(): List<MappingProfile> {
         val jsonStr = prefs.getString(PREF_PROFILES_JSON, null)
         if (jsonStr.isNullOrEmpty()) {
             val defaults = listOf(getFreeFireDefaultProfile(), getClashSquadProfile())
-            saveProfiles(defaults)
+            try {
+                val array = JSONArray()
+                defaults.forEach { array.put(it.toJsonString(0)) }
+                prefs.edit().putString(PREF_PROFILES_JSON, array.toString()).apply()
+            } catch (e: Exception) {
+                // Ignore persistence error
+            }
             return defaults
         }
 
@@ -143,12 +162,6 @@ class ProfileRepository(private val context: Context) {
         } catch (e: Exception) {
             listOf(getFreeFireDefaultProfile())
         }
-    }
-
-    private fun loadActiveProfile(): MappingProfile {
-        val activeId = prefs.getString(PREF_ACTIVE_PROFILE_ID, null)
-        val all = loadAllProfiles()
-        return all.find { it.id == activeId } ?: all.firstOrNull() ?: getFreeFireDefaultProfile()
     }
 
     fun setActiveProfile(profileId: String) {
@@ -208,7 +221,6 @@ class ProfileRepository(private val context: Context) {
     fun resetToDefaults() {
         val defaults = listOf(getFreeFireDefaultProfile(), getClashSquadProfile())
         saveProfiles(defaults)
-        _profiles.value = defaults
         _activeProfile.value = defaults.first()
         prefs.edit().putString(PREF_ACTIVE_PROFILE_ID, defaults.first().id).apply()
     }
@@ -220,7 +232,6 @@ class ProfileRepository(private val context: Context) {
             val list = _profiles.value.toMutableList()
             list.add(updated)
             saveProfiles(list)
-            _profiles.value = list
             _activeProfile.value = updated
             prefs.edit().putString(PREF_ACTIVE_PROFILE_ID, updated.id).apply()
             Result.success(updated)
@@ -230,9 +241,13 @@ class ProfileRepository(private val context: Context) {
     }
 
     private fun saveProfiles(list: List<MappingProfile>) {
-        val array = JSONArray()
-        list.forEach { array.put(it.toJsonString(0)) }
-        prefs.edit().putString(PREF_PROFILES_JSON, array.toString()).apply()
+        try {
+            val array = JSONArray()
+            list.forEach { array.put(it.toJsonString(0)) }
+            prefs.edit().putString(PREF_PROFILES_JSON, array.toString()).apply()
+        } catch (e: Exception) {
+            // Ignore persistence error
+        }
         _profiles.value = list
     }
 }

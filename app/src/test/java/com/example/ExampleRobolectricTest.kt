@@ -18,4 +18,13 @@ class ExampleRobolectricTest {
     val appName = context.getString(R.string.app_name)
     assertEquals("ApexMapper", appName)
   }
+
+  @Test
+  fun `profile repository initializes without crash`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val repo = com.example.data.ProfileRepository(context)
+    val active = repo.activeProfile.value
+    assertEquals("Free Fire - Battle Royale", active.name)
+    assertEquals(true, repo.profiles.value.isNotEmpty())
+  }
 }
