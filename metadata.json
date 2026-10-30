@@ -1,0 +1,6 @@
+{
+  "name": "ApexMapper",
+  "description": "Advanced Free Keymapping and Mouse-to-Touch helper for FPS games like Free Fire with Bluetooth keyboard and mouse support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

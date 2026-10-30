@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">ApexMapper</string>
+    <string name="app_subtitle">Free FPS Keymapping &amp; Mouse Engine</string>
+    <string name="accessibility_service_description">ApexMapper Accessibility Service allows injecting mapped touch gestures and key actions for physical keyboard and mouse control without modifying game files.</string>
+</resources>
