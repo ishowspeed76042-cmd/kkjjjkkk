@@ -58,14 +58,32 @@ class GestureInjector {
         Log.d(TAG, "AccessibilityService detached from GestureInjector")
     }
 
+    /**
+     * Free Fire runs exclusively in Landscape mode.
+     * We dynamically retrieve display metrics and ensure width is the larger dimension
+     * and height is the smaller dimension.
+     */
+    fun getEffectiveLandscapeDimensions(): Pair<Float, Float> {
+        val dm = accessibilityService?.resources?.displayMetrics
+        if (dm != null && dm.widthPixels > 0 && dm.heightPixels > 0) {
+            val w = maxOf(dm.widthPixels, dm.heightPixels).toFloat()
+            val h = minOf(dm.widthPixels, dm.heightPixels).toFloat()
+            return Pair(w, h)
+        }
+        val w = maxOf(screenWidth, screenHeight).toFloat()
+        val h = minOf(screenWidth, screenHeight).toFloat()
+        return Pair(w, h)
+    }
+
     fun isServiceReady(): Boolean = accessibilityService != null
 
     /**
      * Injects a quick tap gesture at normalized coordinates (0.0f..1.0f).
      */
     fun injectTap(normX: Float, normY: Float, label: String? = null, durationMs: Long = 25L): Boolean {
-        val px = normX * screenWidth
-        val py = normY * screenHeight
+        val (w, h) = getEffectiveLandscapeDimensions()
+        val px = (normX * w).coerceIn(0f, w)
+        val py = (normY * h).coerceIn(0f, h)
 
         _visualTouchFlow.tryEmit(VisualTouchEvent(px, py, isMouseSwipe = false, label = label))
 
@@ -91,13 +109,14 @@ class GestureInjector {
         dirX: Float, // -1.0f (left) to 1.0f (right)
         dirY: Float  // -1.0f (up) to 1.0f (down)
     ): Boolean {
-        val centerX = config.centerX * screenWidth
-        val centerY = config.centerY * screenHeight
+        val (w, h) = getEffectiveLandscapeDimensions()
+        val centerX = config.centerX * w
+        val centerY = config.centerY * h
         // Use configurable dragDistance (e.g. 14% of screen) to ensure Free Fire sprint activation
-        val dragDistPx = config.dragDistance * screenWidth
+        val dragDistPx = config.dragDistance * w
 
-        val targetX = (centerX + dirX * dragDistPx).coerceIn(0f, screenWidth.toFloat())
-        val targetY = (centerY + dirY * dragDistPx).coerceIn(0f, screenHeight.toFloat())
+        val targetX = (centerX + dirX * dragDistPx).coerceIn(0f, w)
+        val targetY = (centerY + dirY * dragDistPx).coerceIn(0f, h)
 
         _visualTouchFlow.tryEmit(
             VisualTouchEvent(targetX, targetY, isMouseSwipe = false, label = "WASD")
@@ -155,25 +174,28 @@ class GestureInjector {
             isSwipeBusy = true
         }
 
+        val (w, h) = getEffectiveLandscapeDimensions()
+
         // Camera zone bounding box (right half of screen in Free Fire)
-        val zoneLeft = config.zoneLeft * screenWidth
-        val zoneRight = config.zoneRight * screenWidth
-        val zoneTop = config.zoneTop * screenHeight
-        val zoneBottom = config.zoneBottom * screenHeight
+        val zoneLeft = config.zoneLeft * w
+        val zoneRight = config.zoneRight * w
+        val zoneTop = config.zoneTop * h
+        val zoneBottom = config.zoneBottom * h
         val startX = (zoneLeft + zoneRight) / 2f
         val startY = (zoneTop + zoneBottom) / 2f
 
-        // Apply sensitivity, invert Y if needed, and speed multiplier with crisp gaming amplification (8.5x)
-        // Moving mouse left (curDx < 0) produces a swipe to the left (endX < startX), rotating camera left.
-        // Moving mouse right (curDx > 0) produces a swipe to the right (endX > startX), rotating camera right.
+        // Apply sensitivity, inversion and speed multiplier with crisp gaming amplification (9.5x)
+        // Moving mouse left (effectiveDx < 0) produces a leftward swipe (endX < startX), rotating POV left.
+        // Moving mouse right (effectiveDx > 0) produces a rightward swipe (endX > startX), rotating POV right.
+        val effectiveDx = if (config.invertX) -curDx else curDx
         val effectiveDy = if (config.invertY) -curDy else curDy
-        val amplification = 8.5f
-        val swipeLengthX = curDx * config.sensitivityX * config.speedMultiplier * amplification
+        val amplification = 9.5f
+        val swipeLengthX = effectiveDx * config.sensitivityX * config.speedMultiplier * amplification
         val swipeLengthY = effectiveDy * config.sensitivityY * config.speedMultiplier * amplification
 
         // End point clamped inside swipe zone
-        val endX = (startX + swipeLengthX).coerceIn(zoneLeft + 20f, zoneRight - 20f)
-        val endY = (startY + swipeLengthY).coerceIn(zoneTop + 20f, zoneBottom - 20f)
+        val endX = (startX + swipeLengthX).coerceIn(zoneLeft + 25f, zoneRight - 25f)
+        val endY = (startY + swipeLengthY).coerceIn(zoneTop + 25f, zoneBottom - 25f)
 
         _visualTouchFlow.tryEmit(
             VisualTouchEvent(endX, endY, isMouseSwipe = true, label = "Aim")
@@ -184,8 +206,8 @@ class GestureInjector {
             lineTo(endX, endY)
         }
 
-        // Fast 20ms stroke allows quick touch-swipe execution and rapid re-dispatch
-        val stroke = GestureDescription.StrokeDescription(path, 0, 20L)
+        // Fast 22ms stroke allows quick touch-swipe execution and rapid re-dispatch
+        val stroke = GestureDescription.StrokeDescription(path, 0, 22L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         val dispatched = service.dispatchGesture(
@@ -195,14 +217,18 @@ class GestureInjector {
                     synchronized(swipeLock) {
                         isSwipeBusy = false
                     }
-                    dispatchPendingMouseSwipe(config)
+                    if (hasPendingDeltas()) {
+                        dispatchPendingMouseSwipe(config)
+                    }
                 }
 
                 override fun onCancelled(gestureDescription: GestureDescription?) {
                     synchronized(swipeLock) {
                         isSwipeBusy = false
                     }
-                    dispatchPendingMouseSwipe(config)
+                    if (hasPendingDeltas()) {
+                        dispatchPendingMouseSwipe(config)
+                    }
                 }
             },
             null
@@ -211,7 +237,16 @@ class GestureInjector {
         if (!dispatched) {
             synchronized(swipeLock) {
                 isSwipeBusy = false
+                // Re-accumulate so mouse movements during brief gesture collisions are not lost
+                pendingDeltaX += curDx
+                pendingDeltaY += curDy
             }
+        }
+    }
+
+    private fun hasPendingDeltas(): Boolean {
+        synchronized(swipeLock) {
+            return hypot(pendingDeltaX, pendingDeltaY) >= 0.5f
         }
     }
 

@@ -117,6 +117,7 @@ data class CameraSwipeConfig(
     val sensitivityY: Float = 0.9f,
     val speedMultiplier: Float = 6.0f, // Amplifies mouse delta for responsive 360 camera turns
     val invertY: Boolean = false,
+    val invertX: Boolean = false,
     val deadzone: Float = 1.0f, // Pixel delta deadzone
     val smoothingFactor: Float = 0.85f, // 0.0 = direct, 1.0 = heavy smoothing
     val zoneLeft: Float = 0.50f, // Normalized screen boundary for swipe injection
@@ -132,6 +133,7 @@ data class CameraSwipeConfig(
             put("sensitivityY", sensitivityY.toDouble())
             put("speedMultiplier", speedMultiplier.toDouble())
             put("invertY", invertY)
+            put("invertX", invertX)
             put("deadzone", deadzone.toDouble())
             put("smoothingFactor", smoothingFactor.toDouble())
             put("zoneLeft", zoneLeft.toDouble())
@@ -150,6 +152,7 @@ data class CameraSwipeConfig(
                 sensitivityY = json.optDouble("sensitivityY", 0.9).toFloat(),
                 speedMultiplier = json.optDouble("speedMultiplier", 6.0).toFloat(),
                 invertY = json.optBoolean("invertY", false),
+                invertX = json.optBoolean("invertX", false),
                 deadzone = json.optDouble("deadzone", 1.0).toFloat(),
                 smoothingFactor = json.optDouble("smoothingFactor", 0.85).toFloat(),
                 zoneLeft = json.optDouble("zoneLeft", 0.50).toFloat(),

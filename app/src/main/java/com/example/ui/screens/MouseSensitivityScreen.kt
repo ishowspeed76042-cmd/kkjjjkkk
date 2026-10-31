@@ -75,6 +75,7 @@ fun MouseSensitivityScreen(
     var deadzone by remember(cameraConfig.deadzone) { mutableFloatStateOf(cameraConfig.deadzone) }
     var smoothing by remember(cameraConfig.smoothingFactor) { mutableFloatStateOf(cameraConfig.smoothingFactor) }
     var invertY by remember(cameraConfig.invertY) { mutableStateOf(cameraConfig.invertY) }
+    var invertX by remember(cameraConfig.invertX) { mutableStateOf(cameraConfig.invertX) }
 
     val hotkeyOptions = listOf(
         Pair(KeyEvent.KEYCODE_GRAVE, "~ (Tilde)"),
@@ -282,6 +283,31 @@ fun MouseSensitivityScreen(
                         onCheckedChange = {
                             invertY = it
                             onUpdateCameraConfig(cameraConfig.copy(invertY = it))
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = CyberCyan,
+                            checkedTrackColor = CyberCyan.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Invert X Toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Invert Horizontal Turn (X-Axis)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Invert mouse left/right camera direction", fontSize = 11.sp, color = TextSecondary)
+                    }
+                    Switch(
+                        checked = invertX,
+                        onCheckedChange = {
+                            invertX = it
+                            onUpdateCameraConfig(cameraConfig.copy(invertX = it))
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = CyberCyan,

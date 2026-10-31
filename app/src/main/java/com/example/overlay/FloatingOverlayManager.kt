@@ -123,10 +123,10 @@ class FloatingOverlayManager(private val context: Context) {
 
     /**
      * Floating Emergency Unlock Banner & Mouse Capture:
-     * High-visibility, compact floating banner at top center when mouse is locked.
-     * Takes only a small top strip (~50dp high), keeping the entire rest of the phone display
-     * 100% touchable and unblocked.
-     * Captures relative mouse movements for FPS look without covering the screen with an invisible blocker.
+     * Provides a high-visibility, always-clickable floating banner at top center when mouse is locked,
+     * plus a full-screen transparent capture surface so mouse movement anywhere on the screen
+     * smoothly rotates the camera in Free Fire.
+     * Guaranteed safe: Pressing Volume Up, Esc, Tilde, or tapping the top banner immediately unlocks.
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun showEmergencyUnlockBanner() {
@@ -140,8 +140,86 @@ class FloatingOverlayManager(private val context: Context) {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        // FLAG_NOT_TOUCH_MODAL ensures all touches outside this top banner reach Free Fire directly
-        val params = WindowManager.LayoutParams(
+        // 1. Full-screen transparent mouse capture view to capture mouse movement across the entire display
+        val captureParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            layoutType,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+
+        var lastTapTime = 0L
+        var tapCount = 0
+
+        val captureView = object : View(context) {
+            override fun onCapturedPointerEvent(event: MotionEvent): Boolean {
+                handleCapturedPointer(event)
+                return true
+            }
+
+            override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+                handleCapturedPointer(event)
+                return true
+            }
+
+            override fun onTouchEvent(event: MotionEvent): Boolean {
+                // If event is from mouse (clicks or drag)
+                if (event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) {
+                    handleCapturedPointer(event)
+                    return true
+                }
+
+                // If event is from touchscreen (finger touch)
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    val now = System.currentTimeMillis()
+                    // Tap in top 200px zone immediately unlocks
+                    if (event.y < 200f) {
+                        performEmergencyUnlock()
+                        return true
+                    }
+                    // Triple-tap anywhere on screen within 600ms emergency-unlocks
+                    if (now - lastTapTime < 300L) {
+                        tapCount++
+                        if (tapCount >= 2) {
+                            performEmergencyUnlock()
+                            return true
+                        }
+                    } else {
+                        tapCount = 0
+                    }
+                    lastTapTime = now
+                }
+                return super.onTouchEvent(event)
+            }
+
+            override fun onPointerCaptureChange(hasCapture: Boolean) {
+                super.onPointerCaptureChange(hasCapture)
+                if (!hasCapture && KeymapperAccessibilityService.isMouseLocked.value) {
+                    post { requestPointerCapture() }
+                }
+            }
+
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                val code = event.keyCode
+                // Hardware emergency unlock hotkeys
+                if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_ESCAPE ||
+                    code == repository.activeProfile.value.camera.lockToggleKeyCode
+                ) {
+                    performEmergencyUnlock()
+                    return true
+                }
+                val handled = KeymapperAccessibilityService.currentServiceInstance?.processKeyEvent(event) ?: false
+                return handled || super.dispatchKeyEvent(event)
+            }
+        }.apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+
+        // 2. High-visibility Emergency Unlock Pill at top center
+        val bannerParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutType,
@@ -153,50 +231,26 @@ class FloatingOverlayManager(private val context: Context) {
             y = 20
         }
 
-        val banner = object : LinearLayout(context) {
-            override fun onCapturedPointerEvent(event: MotionEvent): Boolean {
-                handleCapturedPointer(event)
-                return true
-            }
-
-            override fun onPointerCaptureChange(hasCapture: Boolean) {
-                super.onPointerCaptureChange(hasCapture)
-                if (!hasCapture && KeymapperAccessibilityService.isMouseLocked.value) {
-                    post { requestPointerCapture() }
-                }
-            }
-
-            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-                // Hardware Volume Up Key Emergency Unlock
-                if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                    performEmergencyUnlock()
-                    return true
-                }
-                val handled = KeymapperAccessibilityService.currentServiceInstance?.processKeyEvent(event) ?: false
-                return handled || super.dispatchKeyEvent(event)
-            }
-        }.apply {
+        val banner = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(32, 16, 32, 16)
+            setPadding(36, 16, 36, 16)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#E53935")) // Red safety alert
                 cornerRadius = 40f
                 setStroke(3, Color.WHITE)
             }
-            elevation = 20f
-            isFocusable = true
-            isFocusableInTouchMode = true
+            elevation = 30f
 
             val iconText = TextView(context).apply {
                 text = "🔓"
-                textSize = 16f
+                textSize = 18f
                 setPadding(0, 0, 10, 0)
             }
             addView(iconText)
 
             val textMsg = TextView(context).apply {
-                text = "MOUSE LOCKED • TAP HERE TO UNLOCK (or Vol Up)"
+                text = "MOUSE LOCKED • TAP HERE TO UNLOCK (or Vol Up / ~)"
                 setTextColor(Color.WHITE)
                 textSize = 12f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -209,30 +263,36 @@ class FloatingOverlayManager(private val context: Context) {
         }
 
         try {
-            windowManager.addView(banner, params)
+            windowManager.addView(captureView, captureParams)
+            mouseCaptureView = captureView
+
+            windowManager.addView(banner, bannerParams)
             emergencyUnlockBannerView = banner
+
             hasPrevMousePos = false
-            banner.post {
-                banner.requestFocus()
+            captureView.post {
+                captureView.requestFocus()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    banner.requestPointerCapture()
+                    captureView.requestPointerCapture()
                 }
             }
-            Log.d(TAG, "Top Emergency Unlock banner active with pointer capture")
+            Log.d(TAG, "Full-screen mouse capture and emergency unlock active")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to add emergency unlock banner", e)
+            Log.e(TAG, "Failed to add mouse capture and banner", e)
         }
     }
 
     private fun hideEmergencyUnlockBanner() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                emergencyUnlockBannerView?.releasePointerCapture()
+                mouseCaptureView?.releasePointerCapture()
             }
+            mouseCaptureView?.let { windowManager?.removeView(it) }
             emergencyUnlockBannerView?.let { windowManager?.removeView(it) }
         } catch (e: Exception) {
-            Log.e(TAG, "Error removing emergency unlock banner", e)
+            Log.e(TAG, "Error removing mouse capture and banner", e)
         } finally {
+            mouseCaptureView = null
             emergencyUnlockBannerView = null
             hasPrevMousePos = false
         }
@@ -436,11 +496,31 @@ class FloatingOverlayManager(private val context: Context) {
                 }
                 setOnClickListener {
                     val newId = "custom_${System.currentTimeMillis()}"
+                    val usedCodes = repository.activeProfile.value.bindings.map { it.keyCode }.toSet()
+                    val candidates = listOf(
+                        Triple(KeyEvent.KEYCODE_SPACE, "Space", "Jump"),
+                        Triple(KeyEvent.KEYCODE_C, "C", "Crouch"),
+                        Triple(KeyEvent.KEYCODE_Z, "Z", "Prone"),
+                        Triple(KeyEvent.KEYCODE_R, "R", "Reload"),
+                        Triple(KeyEvent.KEYCODE_E, "E", "Skill"),
+                        Triple(KeyEvent.KEYCODE_G, "G", "Gloo Wall"),
+                        Triple(KeyEvent.KEYCODE_F, "F", "Loot"),
+                        Triple(KeyEvent.KEYCODE_1, "1", "Primary Weapon"),
+                        Triple(KeyEvent.KEYCODE_2, "2", "Secondary Weapon"),
+                        Triple(KeyEvent.KEYCODE_3, "3", "Melee"),
+                        Triple(KeyEvent.KEYCODE_4, "4", "Medkit"),
+                        Triple(KeyEvent.KEYCODE_V, "V", "Drive"),
+                        Triple(KeyEvent.KEYCODE_B, "B", "Shop"),
+                        Triple(ProfileRepository.KEYCODE_MOUSE_LEFT, "L-Click", "Shoot"),
+                        Triple(ProfileRepository.KEYCODE_MOUSE_RIGHT, "R-Click", "Aim")
+                    )
+                    val nextKey = candidates.find { it.first !in usedCodes }
+                        ?: Triple(KeyEvent.KEYCODE_SPACE, "Key", "Action")
                     val newBinding = KeyBinding(
                         id = newId,
-                        name = "Custom Key",
-                        keyCode = KeyEvent.KEYCODE_T,
-                        keyLabel = "T",
+                        name = nextKey.third,
+                        keyCode = nextKey.first,
+                        keyLabel = nextKey.second,
                         targetX = 0.50f,
                         targetY = 0.50f,
                         size = 1.0f,

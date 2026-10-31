@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,6 +21,18 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isBackPressed
+import androidx.compose.ui.input.pointer.isForwardPressed
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.isTertiaryPressed
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -403,8 +416,8 @@ fun KeybindsEditorScreen(
             binding = KeyBinding(
                 id = "custom_${System.currentTimeMillis()}",
                 name = "New Action",
-                keyCode = KeyEvent.KEYCODE_T,
-                keyLabel = "T",
+                keyCode = KeyEvent.KEYCODE_UNKNOWN,
+                keyLabel = "Press Key",
                 targetX = 0.50f,
                 targetY = 0.50f,
                 actionType = ActionType.TAP,
@@ -906,30 +919,21 @@ fun EditBindingDialog(
     var targetY by remember { mutableFloatStateOf(binding.targetY) }
     var size by remember { mutableFloatStateOf(binding.size) }
     var category by remember { mutableStateOf(binding.category) }
-    var isListeningForKey by remember { mutableStateOf(isNew) }
+    var isListeningForKey by remember { mutableStateOf(isNew || binding.keyCode == KeyEvent.KEYCODE_UNKNOWN) }
+    var showFullKeyboardGrid by remember { mutableStateOf(false) }
 
     val focusRequester = remember { FocusRequester() }
+    var dummyInput by remember { mutableStateOf(TextFieldValue("")) }
 
     LaunchedEffect(isListeningForKey) {
         if (isListeningForKey) {
-            focusRequester.requestFocus()
+            try {
+                focusRequester.requestFocus()
+            } catch (_: Exception) {}
         }
     }
 
-    val quickPresets = listOf(
-        KeyPreset("Jump", "Space", KeyEvent.KEYCODE_SPACE, BindingCategory.MOVEMENT),
-        KeyPreset("Fire", "L-Click", ProfileRepository.KEYCODE_MOUSE_LEFT, BindingCategory.COMBAT),
-        KeyPreset("Aim", "R-Click", ProfileRepository.KEYCODE_MOUSE_RIGHT, BindingCategory.COMBAT),
-        KeyPreset("Gloo Wall", "G", KeyEvent.KEYCODE_G, BindingCategory.TACTICAL),
-        KeyPreset("Skill", "E", KeyEvent.KEYCODE_E, BindingCategory.TACTICAL),
-        KeyPreset("Crouch", "C", KeyEvent.KEYCODE_C, BindingCategory.MOVEMENT),
-        KeyPreset("Prone", "Z", KeyEvent.KEYCODE_Z, BindingCategory.MOVEMENT),
-        KeyPreset("Reload", "R", KeyEvent.KEYCODE_R, BindingCategory.COMBAT),
-        KeyPreset("Medkit", "4", KeyEvent.KEYCODE_4, BindingCategory.INVENTORY),
-        KeyPreset("Gun 1", "1", KeyEvent.KEYCODE_1, BindingCategory.COMBAT),
-        KeyPreset("Gun 2", "2", KeyEvent.KEYCODE_2, BindingCategory.COMBAT),
-        KeyPreset("Backpack", "Tab", KeyEvent.KEYCODE_TAB, BindingCategory.INVENTORY)
-    )
+    val dialogScrollState = rememberScrollState()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -943,57 +947,110 @@ fun EditBindingDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(dialogScrollState),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Interactive Hardware Key Listener Box
+                // Interactive Hardware Key & Mouse Listener Box
                 if (isListeningForKey) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(CyberCyan.copy(alpha = 0.15f))
-                            .border(BorderStroke(2.dp, CyberCyan), RoundedCornerShape(12.dp))
-                            .focusRequester(focusRequester)
-                            .focusable()
-                            .onKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown) {
-                                    val code = event.nativeKeyEvent.keyCode
-                                    keyCode = code
-                                    keyLabel = formatKeyLabel(code)
-                                    val suggestion = suggestActionName(code, keyLabel)
-                                    name = suggestion.first
-                                    category = suggestion.second
-                                    isListeningForKey = false
-                                    true
-                                } else {
-                                    false
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(CyberCyan.copy(alpha = 0.18f))
+                            .border(BorderStroke(2.5.dp, CyberCyan), RoundedCornerShape(14.dp))
+                            .clickable {
+                                try {
+                                    focusRequester.requestFocus()
+                                } catch (_: Exception) {}
+                            }
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val pointerEvent = awaitPointerEvent()
+                                        val buttons = pointerEvent.buttons
+                                        val mouseCode = when {
+                                            buttons.isPrimaryPressed -> ProfileRepository.KEYCODE_MOUSE_LEFT
+                                            buttons.isSecondaryPressed -> ProfileRepository.KEYCODE_MOUSE_RIGHT
+                                            buttons.isTertiaryPressed -> ProfileRepository.KEYCODE_MOUSE_MIDDLE
+                                            buttons.isBackPressed -> ProfileRepository.KEYCODE_MOUSE_BACK
+                                            buttons.isForwardPressed -> ProfileRepository.KEYCODE_MOUSE_FORWARD
+                                            else -> ProfileRepository.KEYCODE_MOUSE_LEFT
+                                        }
+                                        keyCode = mouseCode
+                                        keyLabel = formatKeyLabel(mouseCode)
+                                        val suggestion = suggestActionName(mouseCode, keyLabel)
+                                        name = suggestion.first
+                                        category = suggestion.second
+                                        isListeningForKey = false
+                                    }
                                 }
                             }
-                            .clickable { focusRequester.requestFocus() }
-                            .padding(14.dp),
+                            .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
+                        // Hidden text input ensures Android OS forwards physical hardware key events directly to this Composable
+                        BasicTextField(
+                            value = dummyInput,
+                            onValueChange = { dummyInput = it },
+                            modifier = Modifier
+                                .size(1.dp)
+                                .alpha(0.01f)
+                                .focusRequester(focusRequester)
+                                .onPreviewKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        val code = event.nativeKeyEvent.keyCode
+                                        if (code != KeyEvent.KEYCODE_UNKNOWN) {
+                                            keyCode = code
+                                            keyLabel = formatKeyLabel(code)
+                                            val suggestion = suggestActionName(code, keyLabel)
+                                            name = suggestion.first
+                                            category = suggestion.second
+                                            isListeningForKey = false
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                }
+                        )
+
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                "⌨️ PRESS ANY KEY ON KEYBOARD NOW...",
+                                text = "🎯 INPUT BOX (बटन दबाने का बॉक्स)",
                                 color = CyberCyan,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                fontSize = 13.sp
                             )
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                "कीबोर्ड का कोई भी बटन दबाएं (Space, Shift, E, R, 1, 2, C, आदि)",
+                                text = "CLICK HERE & PRESS ANY KEY OR MOUSE BUTTON",
                                 color = TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.sp
                             )
                             Spacer(modifier = Modifier.height(3.dp))
                             Text(
-                                "Listening for physical keypress...",
-                                color = NeonGreen,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
+                                text = "कीबोर्ड (Space, Shift, E, R, 1, 2) या माउस का कोई भी बटन दबाएं",
+                                color = CyberAmber,
+                                fontSize = 11.sp
                             )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                color = NeonGreen.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "🟢 LISTENING FOR KEYPRESS...",
+                                    color = NeonGreen,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
                         }
                     }
                 } else {
@@ -1001,44 +1058,49 @@ fun EditBindingDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(NeonGreen.copy(alpha = 0.12f))
-                            .border(BorderStroke(1.dp, NeonGreen), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(NeonGreen.copy(alpha = 0.15f))
+                            .border(BorderStroke(1.5.dp, NeonGreen), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Key Set:", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             KeyBadge(keyLabel = keyLabel, color = NeonGreen)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("($name)", color = TextSecondary, fontSize = 11.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("($name)", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Surface(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable { isListeningForKey = true },
-                            color = DarkSurfaceHighlight
+                            color = DarkSurfaceHighlight,
+                            border = BorderStroke(1.dp, CyberCyan.copy(alpha = 0.5f))
                         ) {
                             Text(
-                                "Press Key ⌨️",
+                                text = "🔄 Change Key",
                                 color = CyberCyan,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
                     }
                 }
 
-                // Mouse Click Selectors
+                // Dedicated Mouse Buttons Section
                 Column {
-                    Text("Or Bind Mouse Click (माउस बटन):", fontSize = 11.sp, color = TextTertiary)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Or Bind Mouse Button (माउस बटन लगाएं):", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Surface(
                             modifier = Modifier
+                                .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable {
                                     keyCode = ProfileRepository.KEYCODE_MOUSE_LEFT
@@ -1047,14 +1109,22 @@ fun EditBindingDialog(
                                     category = BindingCategory.COMBAT
                                     isListeningForKey = false
                                 },
-                            color = if (keyLabel == "L-Click") NeonRed.copy(alpha = 0.25f) else DarkSurfaceHighlight,
+                            color = if (keyLabel == "L-Click") NeonRed.copy(alpha = 0.3f) else DarkSurfaceHighlight,
                             border = BorderStroke(1.dp, if (keyLabel == "L-Click") NeonRed else DarkBorder)
                         ) {
-                            Text("🖱️ Left Click", color = if (keyLabel == "L-Click") NeonRed else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            Text(
+                                text = "🖱️ Left (Shoot)",
+                                color = if (keyLabel == "L-Click") NeonRed else TextSecondary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(vertical = 6.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
                         }
 
                         Surface(
                             modifier = Modifier
+                                .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable {
                                     keyCode = ProfileRepository.KEYCODE_MOUSE_RIGHT
@@ -1063,14 +1133,22 @@ fun EditBindingDialog(
                                     category = BindingCategory.COMBAT
                                     isListeningForKey = false
                                 },
-                            color = if (keyLabel == "R-Click") CyberAmber.copy(alpha = 0.25f) else DarkSurfaceHighlight,
+                            color = if (keyLabel == "R-Click") CyberAmber.copy(alpha = 0.3f) else DarkSurfaceHighlight,
                             border = BorderStroke(1.dp, if (keyLabel == "R-Click") CyberAmber else DarkBorder)
                         ) {
-                            Text("🖱️ Right Click", color = if (keyLabel == "R-Click") CyberAmber else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            Text(
+                                text = "🖱️ Right (Aim)",
+                                color = if (keyLabel == "R-Click") CyberAmber else TextSecondary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(vertical = 6.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
                         }
 
                         Surface(
                             modifier = Modifier
+                                .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable {
                                     keyCode = ProfileRepository.KEYCODE_MOUSE_MIDDLE
@@ -1079,10 +1157,210 @@ fun EditBindingDialog(
                                     category = BindingCategory.TACTICAL
                                     isListeningForKey = false
                                 },
-                            color = if (keyLabel == "M-Click") CyberCyan.copy(alpha = 0.25f) else DarkSurfaceHighlight,
+                            color = if (keyLabel == "M-Click") CyberCyan.copy(alpha = 0.3f) else DarkSurfaceHighlight,
                             border = BorderStroke(1.dp, if (keyLabel == "M-Click") CyberCyan else DarkBorder)
                         ) {
-                            Text("🖱️ Middle", color = if (keyLabel == "M-Click") CyberCyan else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            Text(
+                                text = "🖱️ Middle (Mark)",
+                                color = if (keyLabel == "M-Click") CyberCyan else TextSecondary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(vertical = 6.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                // Quick Popular Keys Grid
+                Column {
+                    Text("Quick Popular Keys (पॉपुलर बटन्स):", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val quickPicks = listOf(
+                        Triple(KeyEvent.KEYCODE_SPACE, "Space", "Jump"),
+                        Triple(KeyEvent.KEYCODE_SHIFT_LEFT, "Shift", "Sprint"),
+                        Triple(KeyEvent.KEYCODE_C, "C", "Crouch"),
+                        Triple(KeyEvent.KEYCODE_Z, "Z", "Prone"),
+                        Triple(KeyEvent.KEYCODE_R, "R", "Reload"),
+                        Triple(KeyEvent.KEYCODE_E, "E", "Skill"),
+                        Triple(KeyEvent.KEYCODE_G, "G", "Gloo Wall"),
+                        Triple(KeyEvent.KEYCODE_F, "F", "Loot / Use"),
+                        Triple(KeyEvent.KEYCODE_TAB, "Tab", "Backpack"),
+                        Triple(KeyEvent.KEYCODE_1, "1", "Gun 1"),
+                        Triple(KeyEvent.KEYCODE_2, "2", "Gun 2"),
+                        Triple(KeyEvent.KEYCODE_3, "3", "Melee"),
+                        Triple(KeyEvent.KEYCODE_4, "4", "Medkit"),
+                        Triple(KeyEvent.KEYCODE_V, "V", "Drive")
+                    )
+
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(quickPicks) { (code, label, actName) ->
+                            val isSelected = (keyCode == code)
+                            Surface(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        keyCode = code
+                                        keyLabel = label
+                                        name = actName
+                                        val suggestion = suggestActionName(code, label)
+                                        category = suggestion.second
+                                        isListeningForKey = false
+                                    },
+                                color = if (isSelected) CyberCyan.copy(alpha = 0.25f) else DarkSurfaceHighlight,
+                                border = BorderStroke(1.dp, if (isSelected) CyberCyan else DarkBorder)
+                            ) {
+                                Text(
+                                    text = "$label ($actName)",
+                                    fontSize = 11.sp,
+                                    color = if (isSelected) CyberCyan else TextPrimary,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Full Keyboard (A-Z, 0-9) Expandable Grid
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showFullKeyboardGrid = !showFullKeyboardGrid },
+                    color = DarkSurfaceHighlight,
+                    border = BorderStroke(1.dp, DarkBorder)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (showFullKeyboardGrid) "▼ Hide Keyboard Grid (A-Z, 0-9)" else "▶ Show Full Keyboard Grid (A-Z, 0-9)",
+                            fontSize = 11.sp,
+                            color = CyberCyan,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                if (showFullKeyboardGrid) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // Numbers 0-9
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(
+                                Pair(KeyEvent.KEYCODE_1, "1"), Pair(KeyEvent.KEYCODE_2, "2"),
+                                Pair(KeyEvent.KEYCODE_3, "3"), Pair(KeyEvent.KEYCODE_4, "4"),
+                                Pair(KeyEvent.KEYCODE_5, "5"), Pair(KeyEvent.KEYCODE_6, "6"),
+                                Pair(KeyEvent.KEYCODE_7, "7"), Pair(KeyEvent.KEYCODE_8, "8"),
+                                Pair(KeyEvent.KEYCODE_9, "9"), Pair(KeyEvent.KEYCODE_0, "0")
+                            ).forEach { (code, label) ->
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            keyCode = code
+                                            keyLabel = label
+                                            val suggestion = suggestActionName(code, label)
+                                            name = suggestion.first
+                                            category = suggestion.second
+                                            isListeningForKey = false
+                                        },
+                                    color = if (keyCode == code) CyberCyan.copy(alpha = 0.3f) else DarkSurfaceElevated,
+                                    border = BorderStroke(1.dp, if (keyCode == code) CyberCyan else DarkBorder)
+                                ) {
+                                    Text(label, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                }
+                            }
+                        }
+
+                        // Letters Q-P
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(
+                                Pair(KeyEvent.KEYCODE_Q, "Q"), Pair(KeyEvent.KEYCODE_W, "W"),
+                                Pair(KeyEvent.KEYCODE_E, "E"), Pair(KeyEvent.KEYCODE_R, "R"),
+                                Pair(KeyEvent.KEYCODE_T, "T"), Pair(KeyEvent.KEYCODE_Y, "Y"),
+                                Pair(KeyEvent.KEYCODE_U, "U"), Pair(KeyEvent.KEYCODE_I, "I"),
+                                Pair(KeyEvent.KEYCODE_O, "O"), Pair(KeyEvent.KEYCODE_P, "P")
+                            ).forEach { (code, label) ->
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            keyCode = code
+                                            keyLabel = label
+                                            val suggestion = suggestActionName(code, label)
+                                            name = suggestion.first
+                                            category = suggestion.second
+                                            isListeningForKey = false
+                                        },
+                                    color = if (keyCode == code) CyberCyan.copy(alpha = 0.3f) else DarkSurfaceElevated,
+                                    border = BorderStroke(1.dp, if (keyCode == code) CyberCyan else DarkBorder)
+                                ) {
+                                    Text(label, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                }
+                            }
+                        }
+
+                        // Letters A-L
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(
+                                Pair(KeyEvent.KEYCODE_A, "A"), Pair(KeyEvent.KEYCODE_S, "S"),
+                                Pair(KeyEvent.KEYCODE_D, "D"), Pair(KeyEvent.KEYCODE_F, "F"),
+                                Pair(KeyEvent.KEYCODE_G, "G"), Pair(KeyEvent.KEYCODE_H, "H"),
+                                Pair(KeyEvent.KEYCODE_J, "J"), Pair(KeyEvent.KEYCODE_K, "K"),
+                                Pair(KeyEvent.KEYCODE_L, "L")
+                            ).forEach { (code, label) ->
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            keyCode = code
+                                            keyLabel = label
+                                            val suggestion = suggestActionName(code, label)
+                                            name = suggestion.first
+                                            category = suggestion.second
+                                            isListeningForKey = false
+                                        },
+                                    color = if (keyCode == code) CyberCyan.copy(alpha = 0.3f) else DarkSurfaceElevated,
+                                    border = BorderStroke(1.dp, if (keyCode == code) CyberCyan else DarkBorder)
+                                ) {
+                                    Text(label, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                }
+                            }
+                        }
+
+                        // Letters Z-M + Space
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(
+                                Pair(KeyEvent.KEYCODE_Z, "Z"), Pair(KeyEvent.KEYCODE_X, "X"),
+                                Pair(KeyEvent.KEYCODE_C, "C"), Pair(KeyEvent.KEYCODE_V, "V"),
+                                Pair(KeyEvent.KEYCODE_B, "B"), Pair(KeyEvent.KEYCODE_N, "N"),
+                                Pair(KeyEvent.KEYCODE_M, "M")
+                            ).forEach { (code, label) ->
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            keyCode = code
+                                            keyLabel = label
+                                            val suggestion = suggestActionName(code, label)
+                                            name = suggestion.first
+                                            category = suggestion.second
+                                            isListeningForKey = false
+                                        },
+                                    color = if (keyCode == code) CyberCyan.copy(alpha = 0.3f) else DarkSurfaceElevated,
+                                    border = BorderStroke(1.dp, if (keyCode == code) CyberCyan else DarkBorder)
+                                ) {
+                                    Text(label, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                }
+                            }
                         }
                     }
                 }
