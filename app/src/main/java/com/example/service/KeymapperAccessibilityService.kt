@@ -187,8 +187,8 @@ class KeymapperAccessibilityService : AccessibilityService() {
                 } else {
                     break
                 }
-                // Pulse interval to sustain continuous joystick movement in Free Fire
-                delay(55L)
+                // Pulse interval to sustain continuous joystick movement while leaving time for camera swipes
+                delay(75L)
             }
         }
     }

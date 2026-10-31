@@ -109,7 +109,7 @@ class GestureInjector {
             lineTo(targetX, targetY)
         }
 
-        val stroke = GestureDescription.StrokeDescription(path, 0, 60L)
+        val stroke = GestureDescription.StrokeDescription(path, 0, 25L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         return service.dispatchGesture(gesture, null, null)
@@ -155,7 +155,7 @@ class GestureInjector {
             isSwipeBusy = true
         }
 
-        // Camera zone bounding box
+        // Camera zone bounding box (right half of screen in Free Fire)
         val zoneLeft = config.zoneLeft * screenWidth
         val zoneRight = config.zoneRight * screenWidth
         val zoneTop = config.zoneTop * screenHeight
@@ -163,16 +163,17 @@ class GestureInjector {
         val startX = (zoneLeft + zoneRight) / 2f
         val startY = (zoneTop + zoneBottom) / 2f
 
-        // Apply sensitivity, invert Y if needed, and speed multiplier with gaming amplifier (6.5x)
-        // This ensures physical mouse delta produces an actual touch swipe distance that rotates Free Fire's camera
+        // Apply sensitivity, invert Y if needed, and speed multiplier with crisp gaming amplification (8.5x)
+        // Moving mouse left (curDx < 0) produces a swipe to the left (endX < startX), rotating camera left.
+        // Moving mouse right (curDx > 0) produces a swipe to the right (endX > startX), rotating camera right.
         val effectiveDy = if (config.invertY) -curDy else curDy
-        val amplification = 6.5f
+        val amplification = 8.5f
         val swipeLengthX = curDx * config.sensitivityX * config.speedMultiplier * amplification
         val swipeLengthY = effectiveDy * config.sensitivityY * config.speedMultiplier * amplification
 
         // End point clamped inside swipe zone
-        val endX = (startX + swipeLengthX).coerceIn(zoneLeft + 25f, zoneRight - 25f)
-        val endY = (startY + swipeLengthY).coerceIn(zoneTop + 25f, zoneBottom - 25f)
+        val endX = (startX + swipeLengthX).coerceIn(zoneLeft + 20f, zoneRight - 20f)
+        val endY = (startY + swipeLengthY).coerceIn(zoneTop + 20f, zoneBottom - 20f)
 
         _visualTouchFlow.tryEmit(
             VisualTouchEvent(endX, endY, isMouseSwipe = true, label = "Aim")
@@ -183,7 +184,8 @@ class GestureInjector {
             lineTo(endX, endY)
         }
 
-        val stroke = GestureDescription.StrokeDescription(path, 0, 36L)
+        // Fast 20ms stroke allows quick touch-swipe execution and rapid re-dispatch
+        val stroke = GestureDescription.StrokeDescription(path, 0, 20L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         val dispatched = service.dispatchGesture(

@@ -212,7 +212,11 @@ fun MainAppContent(
                         repository.clearAllBindings()
                         Toast.makeText(context, "Clean layout: All buttons cleared", Toast.LENGTH_SHORT).show()
                     },
-                    onUpdateBindingSize = { id, delta -> repository.updateBindingSize(id, delta) }
+                    onUpdateBindingSize = { id, delta -> repository.updateBindingSize(id, delta) },
+                    onLoadPresets = {
+                        repository.loadDefaultFreeFirePresets()
+                        Toast.makeText(context, "17 Standard Free Fire presets loaded", Toast.LENGTH_SHORT).show()
+                    }
                 )
                 2 -> MouseSensitivityScreen(
                     cameraConfig = activeProfile.camera,

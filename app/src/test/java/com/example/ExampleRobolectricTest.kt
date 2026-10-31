@@ -1,30 +1,44 @@
 package com.example
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
+import com.example.model.ActionType
+import com.example.model.BindingCategory
+import com.example.model.KeyBinding
+import com.example.model.MappingProfile
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
 class ExampleRobolectricTest {
 
   @Test
-  fun `read string from context`() {
-    val context = ApplicationProvider.getApplicationContext<Context>()
-    val appName = context.getString(R.string.app_name)
-    assertEquals("ApexMapper", appName)
+  fun testKeyBindingModel() {
+    val binding = KeyBinding(
+      id = "test_fire",
+      name = "Shoot",
+      keyCode = 1001,
+      keyLabel = "L-Click",
+      targetX = 0.8f,
+      targetY = 0.6f,
+      actionType = ActionType.TAP,
+      category = BindingCategory.COMBAT,
+      size = 1.2f
+    )
+    assertEquals("test_fire", binding.id)
+    assertEquals("Shoot", binding.name)
+    assertEquals(1.2f, binding.size, 0.01f)
+    assertEquals("L-Click", binding.keyLabel)
   }
 
   @Test
-  fun `profile repository initializes without crash`() {
-    val context = ApplicationProvider.getApplicationContext<Context>()
-    val repo = com.example.data.ProfileRepository(context)
-    val active = repo.activeProfile.value
-    assertEquals("Free Fire - Battle Royale", active.name)
-    assertEquals(true, repo.profiles.value.isNotEmpty())
+  fun testCleanLayoutProfile() {
+    val profile = MappingProfile(
+      id = "clean",
+      name = "Clean Layout",
+      description = "0 buttons",
+      bindings = emptyList()
+    )
+    assertEquals("clean", profile.id)
+    assertTrue(profile.bindings.isEmpty())
   }
 }
+

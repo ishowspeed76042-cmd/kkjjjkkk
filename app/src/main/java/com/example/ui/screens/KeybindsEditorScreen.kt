@@ -47,6 +47,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,7 +56,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -92,7 +99,8 @@ fun KeybindsEditorScreen(
     onUpdateGlobalScale: (Float) -> Unit,
     onResetDefaults: () -> Unit,
     onClearAllBindings: () -> Unit = {},
-    onUpdateBindingSize: (String, Float) -> Unit = { _, _ -> }
+    onUpdateBindingSize: (String, Float) -> Unit = { _, _ -> },
+    onLoadPresets: () -> Unit = {}
 ) {
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
     val categories = listOf("All", "Combat", "Movement", "Tactical", "Inventory", "HUD Preview")
@@ -181,37 +189,29 @@ fun KeybindsEditorScreen(
                 onDeleteBinding = onDeleteBinding
             )
         } else {
-            // Global Scale & Actions Bar
+            // Individual Sizing & Layout Guide Banner
             GamingCard(borderColor = CyberCyan.copy(alpha = 0.35f)) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Global Button Size Scale", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                            Text("Scale all pins together (individual sizes scale proportionally)", fontSize = 11.sp, color = TextSecondary)
-                        }
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "${(profile.globalButtonScale * 100).toInt()}%",
+                            "🎯 Individual Key Resizing (हर बटन का अलग साइज)",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = CyberCyan
+                            color = TextPrimary
                         )
                     }
-                    Slider(
-                        value = profile.globalButtonScale,
-                        onValueChange = { onUpdateGlobalScale(it) },
-                        valueRange = 0.6f..2.2f,
-                        colors = SliderDefaults.colors(thumbColor = CyberCyan, activeTrackColor = CyberCyan)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Each button has its own independent ➖ and ➕ controls. Adjusting a button's size affects ONLY that button. Use '+ Add Key' to capture any key from your keyboard.",
+                        fontSize = 11.sp,
+                        color = TextSecondary
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Action Buttons Bar: [+ Add Key], [Clear All], [Reset Presets]
+            // Action Buttons Bar: [+ Add Key], [Presets], [Clear All]
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -226,7 +226,7 @@ fun KeybindsEditorScreen(
                     color = TextPrimary
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     // Clear all button (for clean start)
                     Surface(
                         modifier = Modifier
@@ -236,21 +236,31 @@ fun KeybindsEditorScreen(
                         border = BorderStroke(1.dp, Color(0xFFE53935).copy(alpha = 0.5f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Delete, contentDescription = "Clear All", tint = Color(0xFFE53935), modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(Icons.Default.Delete, contentDescription = "Clear All", tint = Color(0xFFE53935), modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text("Clear", color = Color(0xFFE53935), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    // Reset defaults icon
-                    IconButton(
-                        onClick = onResetDefaults,
-                        modifier = Modifier.size(32.dp)
+                    // Presets button (Load 17 standard Free Fire keys)
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onLoadPresets() },
+                        color = DarkSurfaceHighlight,
+                        border = BorderStroke(1.dp, CyberCyan.copy(alpha = 0.5f))
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Reset Defaults", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Presets", tint = CyberCyan, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("Presets", color = CyberCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
 
                     // + Add Key Button
@@ -524,7 +534,7 @@ fun InteractiveHudPreview(
                         else -> CyberCyan
                     }
 
-                    val pinSizeDp = (40 * binding.size * profile.globalButtonScale).dp.coerceIn(24.dp, 80.dp)
+                    val pinSizeDp = (44 * binding.size).dp.coerceIn(24.dp, 88.dp)
 
                     Box(
                         modifier = Modifier
@@ -554,7 +564,7 @@ fun InteractiveHudPreview(
                         Text(
                             text = binding.keyLabel,
                             color = pinColor,
-                            fontSize = (11f * binding.size * profile.globalButtonScale).coerceIn(8f, 16f).sp,
+                            fontSize = (11f * binding.size).coerceIn(8f, 16f).sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -833,6 +843,55 @@ data class KeyPreset(
     val category: BindingCategory
 )
 
+private fun formatKeyLabel(keyCode: Int): String {
+    return when (keyCode) {
+        KeyEvent.KEYCODE_SPACE -> "Space"
+        KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> "Shift"
+        KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT -> "Ctrl"
+        KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT -> "Alt"
+        KeyEvent.KEYCODE_TAB -> "Tab"
+        KeyEvent.KEYCODE_ENTER -> "Enter"
+        KeyEvent.KEYCODE_ESCAPE -> "Esc"
+        KeyEvent.KEYCODE_DEL -> "Backspace"
+        KeyEvent.KEYCODE_FORWARD_DEL -> "Delete"
+        KeyEvent.KEYCODE_GRAVE -> "~"
+        ProfileRepository.KEYCODE_MOUSE_LEFT -> "L-Click"
+        ProfileRepository.KEYCODE_MOUSE_RIGHT -> "R-Click"
+        ProfileRepository.KEYCODE_MOUSE_MIDDLE -> "M-Click"
+        ProfileRepository.KEYCODE_MOUSE_BACK -> "Mouse Back"
+        ProfileRepository.KEYCODE_MOUSE_FORWARD -> "Mouse Fwd"
+        else -> {
+            val str = KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_")
+            if (str.length == 1) str else str.lowercase().replaceFirstChar { it.uppercase() }
+        }
+    }
+}
+
+private fun suggestActionName(keyCode: Int, keyLabel: String): Pair<String, BindingCategory> {
+    return when (keyCode) {
+        KeyEvent.KEYCODE_SPACE -> "Jump" to BindingCategory.MOVEMENT
+        KeyEvent.KEYCODE_C -> "Crouch" to BindingCategory.MOVEMENT
+        KeyEvent.KEYCODE_Z -> "Prone" to BindingCategory.MOVEMENT
+        KeyEvent.KEYCODE_R -> "Reload" to BindingCategory.COMBAT
+        KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> "Sprint / Rush" to BindingCategory.MOVEMENT
+        KeyEvent.KEYCODE_E -> "Active Skill" to BindingCategory.TACTICAL
+        KeyEvent.KEYCODE_G -> "Gloo Wall" to BindingCategory.TACTICAL
+        KeyEvent.KEYCODE_F -> "Quick Loot / Revive" to BindingCategory.TACTICAL
+        KeyEvent.KEYCODE_TAB -> "Open Backpack" to BindingCategory.INVENTORY
+        KeyEvent.KEYCODE_1 -> "Primary Weapon" to BindingCategory.COMBAT
+        KeyEvent.KEYCODE_2 -> "Secondary Weapon" to BindingCategory.COMBAT
+        KeyEvent.KEYCODE_3 -> "Melee / Pistol" to BindingCategory.COMBAT
+        KeyEvent.KEYCODE_4 -> "Medkit" to BindingCategory.INVENTORY
+        KeyEvent.KEYCODE_V -> "Enter Vehicle / Drive" to BindingCategory.MOVEMENT
+        KeyEvent.KEYCODE_B -> "Shop / Buy Gun" to BindingCategory.TACTICAL
+        KeyEvent.KEYCODE_M -> "Tactical Map" to BindingCategory.TACTICAL
+        ProfileRepository.KEYCODE_MOUSE_LEFT -> "Shoot / Fire" to BindingCategory.COMBAT
+        ProfileRepository.KEYCODE_MOUSE_RIGHT -> "Aim / ADS" to BindingCategory.COMBAT
+        ProfileRepository.KEYCODE_MOUSE_MIDDLE -> "Ping / Mark" to BindingCategory.TACTICAL
+        else -> "Key $keyLabel" to BindingCategory.TACTICAL
+    }
+}
+
 @Composable
 fun EditBindingDialog(
     binding: KeyBinding,
@@ -847,11 +906,20 @@ fun EditBindingDialog(
     var targetY by remember { mutableFloatStateOf(binding.targetY) }
     var size by remember { mutableFloatStateOf(binding.size) }
     var category by remember { mutableStateOf(binding.category) }
+    var isListeningForKey by remember { mutableStateOf(isNew) }
+
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isListeningForKey) {
+        if (isListeningForKey) {
+            focusRequester.requestFocus()
+        }
+    }
 
     val quickPresets = listOf(
         KeyPreset("Jump", "Space", KeyEvent.KEYCODE_SPACE, BindingCategory.MOVEMENT),
-        KeyPreset("Fire / Shoot", "L-Click", ProfileRepository.KEYCODE_MOUSE_LEFT, BindingCategory.COMBAT),
-        KeyPreset("Aim / ADS", "R-Click", ProfileRepository.KEYCODE_MOUSE_RIGHT, BindingCategory.COMBAT),
+        KeyPreset("Fire", "L-Click", ProfileRepository.KEYCODE_MOUSE_LEFT, BindingCategory.COMBAT),
+        KeyPreset("Aim", "R-Click", ProfileRepository.KEYCODE_MOUSE_RIGHT, BindingCategory.COMBAT),
         KeyPreset("Gloo Wall", "G", KeyEvent.KEYCODE_G, BindingCategory.TACTICAL),
         KeyPreset("Skill", "E", KeyEvent.KEYCODE_E, BindingCategory.TACTICAL),
         KeyPreset("Crouch", "C", KeyEvent.KEYCODE_C, BindingCategory.MOVEMENT),
@@ -868,7 +936,7 @@ fun EditBindingDialog(
         containerColor = DarkSurfaceElevated,
         title = {
             Text(
-                text = if (isNew) "Add Keybinding (+ Button)" else "Edit Key: ${binding.name}",
+                text = if (isNew) "Add Custom Key (+ Button)" else "Edit Key: ${binding.name}",
                 color = TextPrimary,
                 fontWeight = FontWeight.Bold
             )
@@ -878,39 +946,152 @@ fun EditBindingDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Quick Presets Carousel
-                Text("Quick Free Fire Presets (टैप करें):", fontSize = 11.sp, color = TextTertiary)
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(quickPresets) { preset ->
+                // Interactive Hardware Key Listener Box
+                if (isListeningForKey) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CyberCyan.copy(alpha = 0.15f))
+                            .border(BorderStroke(2.dp, CyberCyan), RoundedCornerShape(12.dp))
+                            .focusRequester(focusRequester)
+                            .focusable()
+                            .onKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    val code = event.nativeKeyEvent.keyCode
+                                    keyCode = code
+                                    keyLabel = formatKeyLabel(code)
+                                    val suggestion = suggestActionName(code, keyLabel)
+                                    name = suggestion.first
+                                    category = suggestion.second
+                                    isListeningForKey = false
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            .clickable { focusRequester.requestFocus() }
+                            .padding(14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "⌨️ PRESS ANY KEY ON KEYBOARD NOW...",
+                                color = CyberCyan,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                "कीबोर्ड का कोई भी बटन दबाएं (Space, Shift, E, R, 1, 2, C, आदि)",
+                                color = TextPrimary,
+                                fontSize = 11.sp
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                "Listening for physical keypress...",
+                                color = NeonGreen,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                } else {
+                    // Captured Key Success Card with re-capture button
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(NeonGreen.copy(alpha = 0.12f))
+                            .border(BorderStroke(1.dp, NeonGreen), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Key Set:", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            KeyBadge(keyLabel = keyLabel, color = NeonGreen)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("($name)", color = TextSecondary, fontSize = 11.sp)
+                        }
                         Surface(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    name = preset.name
-                                    keyLabel = preset.keyLabel
-                                    keyCode = preset.keyCode
-                                    category = preset.category
-                                },
-                            color = if (keyLabel == preset.keyLabel) CyberCyan.copy(alpha = 0.2f) else DarkSurfaceHighlight,
-                            border = BorderStroke(1.dp, if (keyLabel == preset.keyLabel) CyberCyan else DarkBorder)
+                                .clickable { isListeningForKey = true },
+                            color = DarkSurfaceHighlight
                         ) {
                             Text(
-                                text = "${preset.keyLabel}: ${preset.name}",
+                                "Press Key ⌨️",
+                                color = CyberCyan,
                                 fontSize = 11.sp,
-                                color = if (keyLabel == preset.keyLabel) CyberCyan else TextSecondary,
+                                fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
                 }
 
+                // Mouse Click Selectors
+                Column {
+                    Text("Or Bind Mouse Click (माउस बटन):", fontSize = 11.sp, color = TextTertiary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    keyCode = ProfileRepository.KEYCODE_MOUSE_LEFT
+                                    keyLabel = "L-Click"
+                                    name = "Shoot / Fire"
+                                    category = BindingCategory.COMBAT
+                                    isListeningForKey = false
+                                },
+                            color = if (keyLabel == "L-Click") NeonRed.copy(alpha = 0.25f) else DarkSurfaceHighlight,
+                            border = BorderStroke(1.dp, if (keyLabel == "L-Click") NeonRed else DarkBorder)
+                        ) {
+                            Text("🖱️ Left Click", color = if (keyLabel == "L-Click") NeonRed else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    keyCode = ProfileRepository.KEYCODE_MOUSE_RIGHT
+                                    keyLabel = "R-Click"
+                                    name = "Aim / ADS"
+                                    category = BindingCategory.COMBAT
+                                    isListeningForKey = false
+                                },
+                            color = if (keyLabel == "R-Click") CyberAmber.copy(alpha = 0.25f) else DarkSurfaceHighlight,
+                            border = BorderStroke(1.dp, if (keyLabel == "R-Click") CyberAmber else DarkBorder)
+                        ) {
+                            Text("🖱️ Right Click", color = if (keyLabel == "R-Click") CyberAmber else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    keyCode = ProfileRepository.KEYCODE_MOUSE_MIDDLE
+                                    keyLabel = "M-Click"
+                                    name = "Enemy Mark / Ping"
+                                    category = BindingCategory.TACTICAL
+                                    isListeningForKey = false
+                                },
+                            color = if (keyLabel == "M-Click") CyberCyan.copy(alpha = 0.25f) else DarkSurfaceHighlight,
+                            border = BorderStroke(1.dp, if (keyLabel == "M-Click") CyberCyan else DarkBorder)
+                        ) {
+                            Text("🖱️ Middle", color = if (keyLabel == "M-Click") CyberCyan else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        }
+                    }
+                }
+
+                // Action Name input
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Action Name", color = TextSecondary) },
+                    label = { Text("Action Name (Action ka naam)", color = TextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextPrimary,
                         unfocusedTextColor = TextPrimary,
@@ -920,65 +1101,17 @@ fun EditBindingDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // Individual Button Size Scale Slider (सिर्फ इस बटन का साइज)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = keyLabel,
-                        onValueChange = {
-                            keyLabel = it.take(8)
-                            if (it.isNotEmpty()) {
-                                val char = it.first().uppercaseChar()
-                                keyCode = when (char) {
-                                    in 'A'..'Z' -> KeyEvent.KEYCODE_A + (char - 'A')
-                                    in '0'..'9' -> KeyEvent.KEYCODE_0 + (char - '0')
-                                    ' ' -> KeyEvent.KEYCODE_SPACE
-                                    else -> keyCode
-                                }
-                            }
-                        },
-                        label = { Text("Key Label", color = TextSecondary) },
-                        modifier = Modifier.weight(1f),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                            focusedBorderColor = CyberCyan,
-                            unfocusedBorderColor = DarkBorder
-                        )
-                    )
-
-                    // Quick mouse button selectors
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Mouse Click:", fontSize = 11.sp, color = TextTertiary)
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            KeyBadge(
-                                "L-Click",
-                                color = NeonRed,
-                                onClick = {
-                                    keyLabel = "L-Click"
-                                    keyCode = ProfileRepository.KEYCODE_MOUSE_LEFT
-                                }
-                            )
-                            KeyBadge(
-                                "R-Click",
-                                color = CyberAmber,
-                                onClick = {
-                                    keyLabel = "R-Click"
-                                    keyCode = ProfileRepository.KEYCODE_MOUSE_RIGHT
-                                }
-                            )
-                        }
+                    Column {
+                        Text("Button Size (बटन साइज)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Changes only this button", fontSize = 10.sp, color = TextSecondary)
                     }
-                }
-
-                // Individual Button Size Scale Slider (बटन्स के साइज छोटे-बड़े)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Individual Button Size (बटन साइज)", fontSize = 12.sp, color = TextSecondary)
-                    Text("${(size * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CyberAmber)
+                    Text("${(size * 100).toInt()}%", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CyberAmber)
                 }
                 Slider(
                     value = size,
@@ -987,8 +1120,38 @@ fun EditBindingDialog(
                     colors = SliderDefaults.colors(thumbColor = CyberAmber, activeTrackColor = CyberAmber)
                 )
 
-                // Coordinate Sliders
-                Text("Target X (Horizontal): ${(targetX * 100).toInt()}%", fontSize = 11.sp, color = TextSecondary)
+                // Quick Size Chips
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        Pair("Compact 75%", 0.75f),
+                        Pair("Normal 100%", 1.0f),
+                        Pair("Large 130%", 1.30f),
+                        Pair("Huge 160%", 1.60f)
+                    ).forEach { (label, presetSize) ->
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { size = presetSize },
+                            color = if ((size * 100).roundToInt() == (presetSize * 100).roundToInt()) CyberAmber.copy(alpha = 0.2f) else DarkSurfaceHighlight,
+                            border = BorderStroke(1.dp, if ((size * 100).roundToInt() == (presetSize * 100).roundToInt()) CyberAmber else DarkBorder)
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                color = if ((size * 100).roundToInt() == (presetSize * 100).roundToInt()) CyberAmber else TextSecondary,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                // Coordinate Sliders (Target X and Y)
+                Text("Screen Position X: ${(targetX * 100).toInt()}%", fontSize = 11.sp, color = TextSecondary)
                 Slider(
                     value = targetX,
                     onValueChange = { targetX = it },
@@ -996,7 +1159,7 @@ fun EditBindingDialog(
                     colors = SliderDefaults.colors(thumbColor = CyberCyan, activeTrackColor = CyberCyan)
                 )
 
-                Text("Target Y (Vertical): ${(targetY * 100).toInt()}%", fontSize = 11.sp, color = TextSecondary)
+                Text("Screen Position Y: ${(targetY * 100).toInt()}%", fontSize = 11.sp, color = TextSecondary)
                 Slider(
                     value = targetY,
                     onValueChange = { targetY = it },
@@ -1007,11 +1170,11 @@ fun EditBindingDialog(
         },
         confirmButton = {
             NeonButton(
-                text = "Save Binding",
+                text = "Save Key",
                 onClick = {
                     onSave(
                         binding.copy(
-                            name = name.ifBlank { "Custom Action" },
+                            name = name.ifBlank { "Custom Key" },
                             keyLabel = keyLabel.ifBlank { "?" },
                             keyCode = keyCode,
                             targetX = targetX,

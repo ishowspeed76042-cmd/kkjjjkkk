@@ -122,9 +122,11 @@ class FloatingOverlayManager(private val context: Context) {
     }
 
     /**
-     * Floating Emergency Unlock Banner:
-     * High-visibility, prominent floating button at top center when mouse is locked.
-     * Guaranteed 1-tap display & mouse release.
+     * Floating Emergency Unlock Banner & Mouse Capture:
+     * High-visibility, compact floating banner at top center when mouse is locked.
+     * Takes only a small top strip (~50dp high), keeping the entire rest of the phone display
+     * 100% touchable and unblocked.
+     * Captures relative mouse movements for FPS look without covering the screen with an invisible blocker.
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun showEmergencyUnlockBanner() {
@@ -138,38 +140,63 @@ class FloatingOverlayManager(private val context: Context) {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        // FLAG_NOT_TOUCH_MODAL ensures all touches outside this top banner reach Free Fire directly
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = 30
+            y = 20
         }
 
-        val banner = LinearLayout(context).apply {
+        val banner = object : LinearLayout(context) {
+            override fun onCapturedPointerEvent(event: MotionEvent): Boolean {
+                handleCapturedPointer(event)
+                return true
+            }
+
+            override fun onPointerCaptureChange(hasCapture: Boolean) {
+                super.onPointerCaptureChange(hasCapture)
+                if (!hasCapture && KeymapperAccessibilityService.isMouseLocked.value) {
+                    post { requestPointerCapture() }
+                }
+            }
+
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                // Hardware Volume Up Key Emergency Unlock
+                if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                    performEmergencyUnlock()
+                    return true
+                }
+                val handled = KeymapperAccessibilityService.currentServiceInstance?.processKeyEvent(event) ?: false
+                return handled || super.dispatchKeyEvent(event)
+            }
+        }.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(32, 18, 32, 18)
+            setPadding(32, 16, 32, 16)
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#E53935")) // Red-Orange safety alert
+                setColor(Color.parseColor("#E53935")) // Red safety alert
                 cornerRadius = 40f
                 setStroke(3, Color.WHITE)
             }
             elevation = 20f
+            isFocusable = true
+            isFocusableInTouchMode = true
 
             val iconText = TextView(context).apply {
                 text = "🔓"
                 textSize = 16f
-                setPadding(0, 0, 12, 0)
+                setPadding(0, 0, 10, 0)
             }
             addView(iconText)
 
             val textMsg = TextView(context).apply {
-                text = "MOUSE LOCKED • TAP HERE TO UNLOCK (or Press Vol Up)"
+                text = "MOUSE LOCKED • TAP HERE TO UNLOCK (or Vol Up)"
                 setTextColor(Color.WHITE)
                 textSize = 12f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -184,6 +211,14 @@ class FloatingOverlayManager(private val context: Context) {
         try {
             windowManager.addView(banner, params)
             emergencyUnlockBannerView = banner
+            hasPrevMousePos = false
+            banner.post {
+                banner.requestFocus()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    banner.requestPointerCapture()
+                }
+            }
+            Log.d(TAG, "Top Emergency Unlock banner active with pointer capture")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add emergency unlock banner", e)
         }
@@ -191,11 +226,15 @@ class FloatingOverlayManager(private val context: Context) {
 
     private fun hideEmergencyUnlockBanner() {
         try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                emergencyUnlockBannerView?.releasePointerCapture()
+            }
             emergencyUnlockBannerView?.let { windowManager?.removeView(it) }
         } catch (e: Exception) {
             Log.e(TAG, "Error removing emergency unlock banner", e)
         } finally {
             emergencyUnlockBannerView = null
+            hasPrevMousePos = false
         }
     }
 
@@ -718,113 +757,11 @@ class FloatingOverlayManager(private val context: Context) {
     }
 
     /**
-     * Mouse Capture Window:
-     * Full-screen transparent overlay for capturing physical mouse deltas into FPS camera touch swipes.
-     * Engineered with safety flags so that touchscreen is NOT trapped and Volume Up emergency unlock
-     * releases capture immediately.
+     * Mouse Capture is handled directly by showEmergencyUnlockBanner() at the top center of the screen.
+     * This guarantees that the main phone display is never blocked by a full-screen invisible window.
      */
-    @SuppressLint("ClickableViewAccessibility")
     private fun enableMouseCapture() {
-        if (!Settings.canDrawOverlays(context) || windowManager == null) return
-        if (mouseCaptureView != null) return
-
-        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        // FLAG_NOT_TOUCH_MODAL is critical to avoid trapping device navigation / display touches
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-        }
-
-        val captureView = object : FrameLayout(context) {
-            override fun onCapturedPointerEvent(event: MotionEvent): Boolean {
-                handleCapturedPointer(event)
-                return true
-            }
-
-            override fun onPointerCaptureChange(hasCapture: Boolean) {
-                super.onPointerCaptureChange(hasCapture)
-                if (!hasCapture && KeymapperAccessibilityService.isMouseLocked.value) {
-                    post { requestPointerCapture() }
-                }
-            }
-
-            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-                // Hardware Volume Up Key Emergency Unlock
-                if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                    performEmergencyUnlock()
-                    return true
-                }
-                val handled = KeymapperAccessibilityService.currentServiceInstance?.processKeyEvent(event) ?: false
-                return handled || super.dispatchKeyEvent(event)
-            }
-        }.apply {
-            setBackgroundColor(Color.TRANSPARENT)
-            isFocusable = true
-            isFocusableInTouchMode = true
-        }
-
-        // Center crosshair
-        val crosshair = View(context).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.argb(160, 0, 229, 255))
-            }
-            layoutParams = FrameLayout.LayoutParams(12, 12, Gravity.CENTER)
-        }
-        captureView.addView(crosshair)
-
-        // Listen for mouse motions across captured, generic, hover, and touch events
-        captureView.setOnGenericMotionListener { _, event ->
-            handleCapturedPointer(event)
-            true
-        }
-
-        captureView.setOnHoverListener { _, event ->
-            handleCapturedPointer(event)
-            true
-        }
-
-        captureView.setOnTouchListener { _, event ->
-            // If user touches display with finger near top center or triple taps, emergency unlock
-            if (event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER) {
-                if (event.rawY < 180f) {
-                    performEmergencyUnlock()
-                    return@setOnTouchListener true
-                }
-            } else if (event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE) {
-                handleCapturedPointer(event)
-                return@setOnTouchListener true
-            }
-            false
-        }
-
-        try {
-            windowManager.addView(captureView, params)
-            mouseCaptureView = captureView
-            hasPrevMousePos = false
-            captureView.post {
-                captureView.requestFocus()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    captureView.requestPointerCapture()
-                }
-            }
-            Log.d(TAG, "Full-screen mouse pointer capture active with safety unlock")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to add mouse capture view", e)
-        }
+        showEmergencyUnlockBanner()
     }
 
     private fun handleCapturedPointer(event: MotionEvent) {
@@ -870,16 +807,6 @@ class FloatingOverlayManager(private val context: Context) {
     }
 
     private fun disableMouseCapture() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                mouseCaptureView?.releasePointerCapture()
-            }
-            mouseCaptureView?.let { windowManager?.removeView(it) }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error removing mouse capture view", e)
-        } finally {
-            mouseCaptureView = null
-            hasPrevMousePos = false
-        }
+        hideEmergencyUnlockBanner()
     }
 }

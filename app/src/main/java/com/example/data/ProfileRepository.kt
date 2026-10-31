@@ -60,31 +60,14 @@ class ProfileRepository(private val context: Context) {
     }
 
     fun getFreeFireDefaultProfile(): MappingProfile {
-        val bindings = listOf(
-            KeyBinding("fire", "Shoot / Fire", KEYCODE_MOUSE_LEFT, "L-Click", 0.88f, 0.58f, ActionType.TAP, BindingCategory.COMBAT),
-            KeyBinding("aim", "Aim Down Sights (ADS)", KEYCODE_MOUSE_RIGHT, "R-Click", 0.82f, 0.40f, ActionType.TAP, BindingCategory.COMBAT),
-            KeyBinding("reload", "Reload", KeyEvent.KEYCODE_R, "R", 0.82f, 0.26f, ActionType.TAP, BindingCategory.COMBAT),
-            KeyBinding("jump", "Jump", KeyEvent.KEYCODE_SPACE, "Space", 0.92f, 0.72f, ActionType.TAP, BindingCategory.MOVEMENT),
-            KeyBinding("crouch", "Crouch", KeyEvent.KEYCODE_C, "C", 0.82f, 0.78f, ActionType.TAP, BindingCategory.MOVEMENT),
-            KeyBinding("prone", "Prone", KeyEvent.KEYCODE_Z, "Z", 0.72f, 0.88f, ActionType.TAP, BindingCategory.MOVEMENT),
-            KeyBinding("sprint", "Sprint / Rush", KeyEvent.KEYCODE_SHIFT_LEFT, "Shift", 0.22f, 0.48f, ActionType.TAP, BindingCategory.MOVEMENT),
-            KeyBinding("weapon_1", "Primary Weapon", KeyEvent.KEYCODE_1, "1", 0.58f, 0.10f, ActionType.TAP, BindingCategory.COMBAT),
-            KeyBinding("weapon_2", "Secondary Weapon", KeyEvent.KEYCODE_2, "2", 0.72f, 0.10f, ActionType.TAP, BindingCategory.COMBAT),
-            KeyBinding("weapon_3", "Melee / Pistol", KeyEvent.KEYCODE_3, "3", 0.84f, 0.10f, ActionType.TAP, BindingCategory.COMBAT),
-            KeyBinding("medkit", "Medkit / Heal", KeyEvent.KEYCODE_4, "4", 0.10f, 0.58f, ActionType.TAP, BindingCategory.INVENTORY),
-            KeyBinding("gloo_wall", "Gloo Wall / Grenade", KeyEvent.KEYCODE_G, "G", 0.12f, 0.72f, ActionType.TAP, BindingCategory.TACTICAL),
-            KeyBinding("skill", "Active Character Skill", KeyEvent.KEYCODE_E, "E", 0.62f, 0.68f, ActionType.TAP, BindingCategory.TACTICAL),
-            KeyBinding("backpack", "Open Backpack", KeyEvent.KEYCODE_TAB, "Tab", 0.08f, 0.85f, ActionType.TAP, BindingCategory.INVENTORY),
-            KeyBinding("loot", "Quick Loot / Revive", KeyEvent.KEYCODE_F, "F", 0.68f, 0.48f, ActionType.TAP, BindingCategory.TACTICAL),
-            KeyBinding("map", "Tactical Map", KeyEvent.KEYCODE_M, "M", 0.10f, 0.14f, ActionType.TAP, BindingCategory.TACTICAL),
-            KeyBinding("drive", "Enter Vehicle / Drive", KeyEvent.KEYCODE_V, "V", 0.68f, 0.36f, ActionType.TAP, BindingCategory.MOVEMENT)
-        )
-
+        // Starts clean with 0 default buttons as requested by user.
+        // User builds their layout with only the buttons they need by pressing physical keys.
         val joystick = JoystickConfig(
             enabled = true,
             centerX = 0.18f,
             centerY = 0.72f,
             radius = 0.08f,
+            dragDistance = 0.14f,
             upKey = KeyEvent.KEYCODE_W,
             downKey = KeyEvent.KEYCODE_S,
             leftKey = KeyEvent.KEYCODE_A,
@@ -95,8 +78,9 @@ class ProfileRepository(private val context: Context) {
         val camera = CameraSwipeConfig(
             sensitivityX = 1.0f,
             sensitivityY = 0.85f,
+            speedMultiplier = 6.0f,
             invertY = false,
-            deadzone = 1.2f,
+            deadzone = 1.0f,
             smoothingFactor = 0.85f,
             zoneLeft = 0.50f,
             zoneTop = 0.15f,
@@ -107,11 +91,11 @@ class ProfileRepository(private val context: Context) {
         )
 
         return MappingProfile(
-            id = "freefire_br_default",
-            name = "Free Fire - Battle Royale",
-            description = "Optimized HUD layout for Free Fire Battle Royale with instant Gloo Wall and mouse look.",
+            id = "freefire_clean_default",
+            name = "Free Fire - Clean Layout",
+            description = "Clean layout with 0 pre-existing buttons. Tap '+ Add Key' and press your physical keys to set only the buttons you want.",
             isDefault = true,
-            bindings = bindings,
+            bindings = emptyList(),
             joystick = joystick,
             camera = camera,
             floatingOverlayEnabled = false,
@@ -119,27 +103,40 @@ class ProfileRepository(private val context: Context) {
         )
     }
 
+    fun getFreeFirePresetBindings(): List<KeyBinding> {
+        return listOf(
+            KeyBinding("fire", "Shoot / Fire", KEYCODE_MOUSE_LEFT, "L-Click", 0.88f, 0.58f, ActionType.TAP, BindingCategory.COMBAT, size = 1.15f),
+            KeyBinding("aim", "Aim Down Sights (ADS)", KEYCODE_MOUSE_RIGHT, "R-Click", 0.82f, 0.40f, ActionType.TAP, BindingCategory.COMBAT, size = 1.0f),
+            KeyBinding("reload", "Reload", KeyEvent.KEYCODE_R, "R", 0.82f, 0.26f, ActionType.TAP, BindingCategory.COMBAT, size = 0.9f),
+            KeyBinding("jump", "Jump", KeyEvent.KEYCODE_SPACE, "Space", 0.92f, 0.72f, ActionType.TAP, BindingCategory.MOVEMENT, size = 1.1f),
+            KeyBinding("crouch", "Crouch", KeyEvent.KEYCODE_C, "C", 0.82f, 0.78f, ActionType.TAP, BindingCategory.MOVEMENT, size = 0.95f),
+            KeyBinding("prone", "Prone", KeyEvent.KEYCODE_Z, "Z", 0.72f, 0.88f, ActionType.TAP, BindingCategory.MOVEMENT, size = 0.9f),
+            KeyBinding("sprint", "Sprint / Rush", KeyEvent.KEYCODE_SHIFT_LEFT, "Shift", 0.22f, 0.48f, ActionType.TAP, BindingCategory.MOVEMENT, size = 1.0f),
+            KeyBinding("weapon_1", "Primary Weapon", KeyEvent.KEYCODE_1, "1", 0.58f, 0.10f, ActionType.TAP, BindingCategory.COMBAT, size = 0.95f),
+            KeyBinding("weapon_2", "Secondary Weapon", KeyEvent.KEYCODE_2, "2", 0.72f, 0.10f, ActionType.TAP, BindingCategory.COMBAT, size = 0.95f),
+            KeyBinding("weapon_3", "Melee / Pistol", KeyEvent.KEYCODE_3, "3", 0.84f, 0.10f, ActionType.TAP, BindingCategory.COMBAT, size = 0.95f),
+            KeyBinding("medkit", "Medkit / Heal", KeyEvent.KEYCODE_4, "4", 0.10f, 0.58f, ActionType.TAP, BindingCategory.INVENTORY, size = 0.9f),
+            KeyBinding("gloo_wall", "Gloo Wall / Grenade", KeyEvent.KEYCODE_G, "G", 0.12f, 0.72f, ActionType.TAP, BindingCategory.TACTICAL, size = 1.15f),
+            KeyBinding("skill", "Active Character Skill", KeyEvent.KEYCODE_E, "E", 0.62f, 0.68f, ActionType.TAP, BindingCategory.TACTICAL, size = 1.0f),
+            KeyBinding("backpack", "Open Backpack", KeyEvent.KEYCODE_TAB, "Tab", 0.08f, 0.85f, ActionType.TAP, BindingCategory.INVENTORY, size = 0.9f),
+            KeyBinding("loot", "Quick Loot / Revive", KeyEvent.KEYCODE_F, "F", 0.68f, 0.48f, ActionType.TAP, BindingCategory.TACTICAL, size = 1.0f),
+            KeyBinding("map", "Tactical Map", KeyEvent.KEYCODE_M, "M", 0.10f, 0.14f, ActionType.TAP, BindingCategory.TACTICAL, size = 0.9f),
+            KeyBinding("drive", "Enter Vehicle / Drive", KeyEvent.KEYCODE_V, "V", 0.68f, 0.36f, ActionType.TAP, BindingCategory.MOVEMENT, size = 0.9f)
+        )
+    }
+
+    fun loadDefaultFreeFirePresets() {
+        val current = _activeProfile.value
+        val preset = getFreeFirePresetBindings()
+        saveActiveProfile(current.copy(bindings = preset))
+    }
+
     fun getBlankCustomProfile(): MappingProfile {
-        return MappingProfile(
+        return getFreeFireDefaultProfile().copy(
             id = "custom_empty",
             name = "Custom Layout (Clean / Empty)",
             description = "Start completely clean with 0 default buttons. Use '+ Add Key' to add only what you need.",
-            isDefault = false,
-            bindings = emptyList(),
-            joystick = JoystickConfig(
-                enabled = true,
-                centerX = 0.18f,
-                centerY = 0.72f,
-                radius = 0.08f,
-                dragDistance = 0.14f
-            ),
-            camera = CameraSwipeConfig(
-                sensitivityX = 1.0f,
-                sensitivityY = 0.85f,
-                speedMultiplier = 1.0f
-            ),
-            floatingOverlayEnabled = false,
-            overlayOpacity = 0.70f
+            isDefault = false
         )
     }
 
